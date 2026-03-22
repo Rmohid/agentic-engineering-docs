@@ -20,7 +20,7 @@
 
 set -euo pipefail
 
-DOCS_DIR="$(cd "$(dirname "$0")/docs" && pwd)"
+DOCS_DIR="$(cd "$(dirname "$0")/../docs" && pwd)"
 RESUME_FROM="${RESUME_FROM:-1}"
 TOTAL=17
 
@@ -352,7 +352,7 @@ The memory taxonomy (working, short-term, long-term). Conversation memory strate
 
 **After reading:** You can build memory systems that give agents coherent, persistent state.
 
-### 13. [Cost Engineering for LLM Systems](cost-engineering.md)
+### 13. [Cost Engineering for LLM Systems](cost-engineering-for-llm-systems.md)
 
 **You need this if:** Your LLM costs are unpredictable, growing, or preventing you from scaling.
 
@@ -413,7 +413,7 @@ Why most loops plateau. The evaluator independence principle. 6 failure modes of
 | Decide which pattern to use | [7. Solution Patterns](ai-native-solution-patterns.md) | [8. Evaluation](evaluation-driven-development.md) |
 | Measure if my system works | [8. Evaluation](evaluation-driven-development.md) | [9. Role Separation](llm-role-separation-executor-evaluator.md) |
 | Prevent prompt injection | [11. Security](security-and-safety.md) | [10. Quality Gates](quality-gates-in-agentic-systems.md) |
-| Control costs | [13. Cost Engineering](cost-engineering.md) | [7. Solution Patterns](ai-native-solution-patterns.md) |
+| Control costs | [13. Cost Engineering](cost-engineering-for-llm-systems.md) | [7. Solution Patterns](ai-native-solution-patterns.md) |
 | Debug production issues | [14. Observability](observability-and-monitoring.md) | [8. Evaluation](evaluation-driven-development.md) |
 | Add human oversight | [15. Human-in-the-Loop](human-in-the-loop-patterns.md) | [10. Quality Gates](quality-gates-in-agentic-systems.md) |
 | Coordinate multiple agents | [16. Multi-Agent](multi-agent-coordination.md) | [12. Memory](memory-and-state-management.md) |

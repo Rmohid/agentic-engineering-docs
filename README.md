@@ -40,9 +40,31 @@ Or jump directly to what you need:
 
 Each document is 3,000-5,000 words with Mermaid diagrams, comparison tables, working code examples, and a References section with clickable URLs to every source consulted.
 
+## Repository Structure
+
+```
+docs/              17 deep-dive documents + index reading guide
+.claude/commands/  The /deep-dive skill definition used to generate each document
+tools/             Generation script (maintainer use only)
+```
+
 ## For Maintainers
 
-`generate-deep-dives.sh` is the script used to produce these documents. It requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with the `/deep-dive` skill configured. It is not intended for end users.
+The documents were generated using [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with the `/deep-dive` command. The skill definition is included at `.claude/commands/deep-dive.md` so anyone who clones this repo can use it.
+
+To regenerate the full suite:
+
+```bash
+cd tools
+chmod +x generate-deep-dives.sh
+./generate-deep-dives.sh
+```
+
+To regenerate from a specific step (e.g., after a failure at step 5):
+
+```bash
+RESUME_FROM=5 ./generate-deep-dives.sh
+```
 
 ## License
 
