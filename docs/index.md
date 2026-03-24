@@ -1,6 +1,6 @@
 # Agentic Engineering: A Practitioner's Guide
 
-From "what is a token" to production multi-agent systems -- 17 deep-dives that build on each other in sequence.
+From "what is a token" to production multi-agent systems -- 20 deep-dives that build on each other in sequence, plus companion references.
 
 This documentation suite is designed for engineers who need to build production systems that leverage AI. It assumes programming experience but no prior LLM knowledge. Each document is self-contained but designed to be read in order -- later documents reference concepts and patterns introduced in earlier ones.
 
@@ -96,6 +96,14 @@ The eval flywheel. Building golden datasets. Code-based, embedding-based, and LL
 
 **After reading:** You can build the measurement infrastructure that tells you whether your system is actually improving.
 
+### 9. [Fine-Tuning for Practitioners](fine-tuning-for-practitioners.md)
+
+**You need this if:** Prompting cannot reliably produce the behavior you need at scale, and you need to decide whether fine-tuning is worth the investment.
+
+When to fine-tune vs prompt engineering vs RAG -- the decision framework. SFT, DPO, and RLHF: what each method does and when to use it. LoRA as the production default. Data curation (quality over quantity). Distillation for cost reduction. Fine-tuning failure modes (catastrophic forgetting, template mismatch, overfitting). Current costs across providers.
+
+**After reading:** You can make a disciplined decision about whether to fine-tune, and if so, execute the process without the common pitfalls.
+
 ---
 
 ## Tier 3: Quality and Safety
@@ -104,7 +112,7 @@ The eval flywheel. Building golden datasets. Code-based, embedding-based, and LL
 
 Read this tier when you have a working system and need to harden it for real users. These documents address the problems that surface when your system handles untrusted input, makes consequential decisions, or runs at scale.
 
-### 9. [LLM Role Separation: Executor vs Evaluator](llm-role-separation-executor-evaluator.md)
+### 10. [LLM Role Separation: Executor vs Evaluator](llm-role-separation-executor-evaluator.md)
 
 **You need this if:** Your system uses the same LLM to both produce and judge its output, or you are building evaluation into your pipeline.
 
@@ -112,7 +120,7 @@ Why shared cognition corrupts judgment. 7 levels of isolation from same-call to 
 
 **After reading:** You can architect evaluation so that the judge is genuinely independent of the executor.
 
-### 10. [Quality Gates in Agentic Systems](quality-gates-in-agentic-systems.md)
+### 11. [Quality Gates in Agentic Systems](quality-gates-in-agentic-systems.md)
 
 **You need this if:** Your agents skip steps, rationalize bad output, or fail quality checks that look correct on paper.
 
@@ -120,7 +128,7 @@ Why self-enforcement fails when the LLM is both worker and inspector. 6 failure 
 
 **After reading:** You can design quality gates that the LLM cannot rationalize around.
 
-### 11. [Security and Safety in LLM Applications](security-and-safety.md)
+### 12. [Security and Safety in LLM Applications](security-and-safety.md)
 
 **You need this if:** Your system handles user input, processes external data, or makes decisions that affect real people.
 
@@ -136,7 +144,7 @@ The LLM threat model. Direct and indirect prompt injection. The defense hierarch
 
 Read this tier when you are moving from prototype to production, or when your production system has operational problems (cost overruns, silent quality degradation, context overflow, user trust issues).
 
-### 12. [Memory and State Management](memory-and-state-management.md)
+### 13. [Memory and State Management](memory-and-state-management.md)
 
 **You need this if:** Your agents forget context between turns, your long-running agents degrade as conversations grow, or you need persistence across sessions.
 
@@ -144,7 +152,7 @@ The memory taxonomy (working, short-term, long-term). Conversation memory strate
 
 **After reading:** You can build memory systems that give agents coherent, persistent state.
 
-### 13. [Cost Engineering for LLM Systems](cost-engineering-for-llm-systems.md)
+### 14. [Cost Engineering for LLM Systems](cost-engineering-for-llm-systems.md)
 
 **You need this if:** Your LLM costs are unpredictable, growing, or preventing you from scaling.
 
@@ -152,7 +160,7 @@ The token cost model. Cost estimation per pattern. Caching strategies (exact, se
 
 **After reading:** You can budget, monitor, and optimize the cost of your LLM system.
 
-### 14. [Observability and Monitoring](observability-and-monitoring.md)
+### 15. [Observability and Monitoring](observability-and-monitoring.md)
 
 **You need this if:** You cannot explain why your LLM system produced a specific output, or you discover quality problems only when users complain.
 
@@ -160,7 +168,7 @@ Why LLM observability differs from traditional monitoring. What to log. Multi-st
 
 **After reading:** You can see inside your LLM system and detect problems before users do.
 
-### 15. [Human-in-the-Loop Patterns](human-in-the-loop-patterns.md)
+### 16. [Human-in-the-Loop Patterns](human-in-the-loop-patterns.md)
 
 **You need this if:** You need to decide how much autonomy to give your AI system, or you need human oversight without destroying the value of automation.
 
@@ -168,13 +176,29 @@ The four levels of human involvement. Approval workflow architecture. Escalation
 
 **After reading:** You can design the boundary between human judgment and machine autonomy.
 
+### 17. [Testing and Shipping LLM Systems](testing-and-shipping-llm-systems.md)
+
+**You need this if:** You deploy prompt changes by editing a string and hoping for the best, or you have no CI/CD pipeline for your LLM components.
+
+The three-layer testing architecture (deterministic unit tests, LLM evaluation tests, end-to-end scenario tests). Prompt versioning as engineering practice. CI/CD pipelines for LLM applications. Shadow, canary, and A/B deployment strategies. Rollback architecture. The data flywheel that turns production failures into regression tests.
+
+**After reading:** You can deploy LLM changes with the same rigor as code changes -- versioned, tested, progressively rolled out, and instantly rollbackable.
+
+### 18. [Reliability Engineering for LLM Applications](reliability-engineering-for-llm-applications.md)
+
+**You need this if:** Your LLM-integrated system has no retry strategy, no fallback when providers fail, or no protection against runaway agents.
+
+The three-tier retry strategy. Quality-aware circuit breakers. Multi-provider failover architectures. Adaptive timeouts for variable-latency LLM calls. Idempotent tool execution. Runaway agent prevention. Graceful degradation ladders. Chaos engineering for LLM systems.
+
+**After reading:** You can keep your LLM system running when providers fail, models degrade, and agents misbehave.
+
 ---
 
 ## Tier 5: Advanced Architecture
 
 *Patterns for systems that coordinate multiple agents or improve themselves over time. Read these last -- most production systems never need them.*
 
-### 16. [Multi-Agent Coordination](multi-agent-coordination.md)
+### 19. [Multi-Agent Coordination](multi-agent-coordination.md)
 
 **You need this if:** You have proven that a single agent cannot handle your task, and simpler patterns (router, orchestrator-workers) are insufficient.
 
@@ -182,7 +206,7 @@ When multi-agent is warranted (less than 0.1% of use cases). Communication patte
 
 **After reading:** You can design multi-agent systems for the rare cases that genuinely need them, and you know when to avoid them.
 
-### 17. [Self-Improving Systems](self-improving-systems.md)
+### 20. [Self-Improving Systems](self-improving-systems.md)
 
 **You need this if:** You want to build systems that improve their own performance through feedback loops, automated experimentation, or self-training.
 
@@ -203,13 +227,31 @@ Why most loops plateau. The evaluator independence principle. 6 failure modes of
 | Give my LLM access to my data | [5. RAG](rag-from-concept-to-production.md) | [3. Context Engineering](context-engineering.md) |
 | Build an agent that uses tools | [6. Tool Design](tool-design-for-llm-agents.md) | [7. Solution Patterns](ai-native-solution-patterns.md) |
 | Decide which pattern to use | [7. Solution Patterns](ai-native-solution-patterns.md) | [8. Evaluation](evaluation-driven-development.md) |
-| Measure if my system works | [8. Evaluation](evaluation-driven-development.md) | [9. Role Separation](llm-role-separation-executor-evaluator.md) |
-| Prevent prompt injection | [11. Security](security-and-safety.md) | [10. Quality Gates](quality-gates-in-agentic-systems.md) |
-| Control costs | [13. Cost Engineering](cost-engineering-for-llm-systems.md) | [7. Solution Patterns](ai-native-solution-patterns.md) |
-| Debug production issues | [14. Observability](observability-and-monitoring.md) | [8. Evaluation](evaluation-driven-development.md) |
-| Add human oversight | [15. Human-in-the-Loop](human-in-the-loop-patterns.md) | [10. Quality Gates](quality-gates-in-agentic-systems.md) |
-| Coordinate multiple agents | [16. Multi-Agent](multi-agent-coordination.md) | [12. Memory](memory-and-state-management.md) |
-| Build self-improving loops | [17. Self-Improving](self-improving-systems.md) | [9. Role Separation](llm-role-separation-executor-evaluator.md) |
+| Measure if my system works | [8. Evaluation](evaluation-driven-development.md) | [10. Role Separation](llm-role-separation-executor-evaluator.md) |
+| Fine-tune a model for my use case | [9. Fine-Tuning](fine-tuning-for-practitioners.md) | [8. Evaluation](evaluation-driven-development.md) |
+| Prevent prompt injection | [12. Security](security-and-safety.md) | [11. Quality Gates](quality-gates-in-agentic-systems.md) |
+| Control costs | [14. Cost Engineering](cost-engineering-for-llm-systems.md) | [7. Solution Patterns](ai-native-solution-patterns.md) |
+| Debug production issues | [15. Observability](observability-and-monitoring.md) | [8. Evaluation](evaluation-driven-development.md) |
+| Add human oversight | [16. Human-in-the-Loop](human-in-the-loop-patterns.md) | [11. Quality Gates](quality-gates-in-agentic-systems.md) |
+| Ship prompt changes safely | [17. Testing and Shipping](testing-and-shipping-llm-systems.md) | [15. Observability](observability-and-monitoring.md) |
+| Handle provider failures | [18. Reliability](reliability-engineering-for-llm-applications.md) | [14. Cost Engineering](cost-engineering-for-llm-systems.md) |
+| Coordinate multiple agents | [19. Multi-Agent](multi-agent-coordination.md) | [13. Memory](memory-and-state-management.md) |
+| Build self-improving loops | [20. Self-Improving](self-improving-systems.md) | [10. Role Separation](llm-role-separation-executor-evaluator.md) |
+| Choose a framework or tool | [Framework Landscape](ai-native-framework-landscape.md) | [7. Solution Patterns](ai-native-solution-patterns.md) |
+
+---
+
+## Companion References
+
+*Standalone reference documents that complement the main curriculum. Not part of the sequential reading order.*
+
+### [The AI-Native Framework Landscape](ai-native-framework-landscape.md)
+
+A comprehensive map of 22+ production-grade third-party frameworks across 7 layers of the AI application stack: inference/serving, vector storage, LLM gateways, structured output, orchestration, agent frameworks, and evaluation/observability. Includes composition patterns, a decision framework, and practitioner consensus on when to use (and skip) frameworks.
+
+### [File-Based Memory for AI Systems](file-based-memory-for-ai-systems.md)
+
+A practical pattern for implementing persistent memory in AI coding agents and assistants using the filesystem. Covers memory file structure, indexing strategies, and retrieval patterns for systems that need to remember context across sessions without external infrastructure.
 
 ---
 
@@ -219,4 +261,4 @@ Every document follows the same structure: problem diagnosis before solutions, f
 
 The documents are opinionated. They reflect the current practitioner consensus (Anthropic, OpenAI, Google, and the broader engineering community) as of March 2026. Where sources disagree, the documents state the disagreement rather than picking a side.
 
-The consistent message across all 17 documents: **start with the simplest approach that could work, measure whether it does, and escalate complexity only when the data demands it.**
+The consistent message across all 20 documents: **start with the simplest approach that could work, measure whether it does, and escalate complexity only when the data demands it.**
