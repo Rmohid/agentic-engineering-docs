@@ -1,22 +1,18 @@
 # Quality Gates in Agentic Systems: Why They Fail and How to Make Them Reliable
 
-Every quality gate in an LLM-driven system faces the same structural contradiction: the entity being constrained is the same entity interpreting and enforcing the constraint. This is a governance problem, not a software engineering problem.
+**Thesis:** A gate the model interprets is a suggestion; a gate code enforces is a gate — and a gate that is absent from where the work can be done is not a gate at all, because its silence is indistinguishable from a pass.
 
----
+**Prerequisites:** [LLM Role Separation: Executor vs Evaluator](llm-role-separation-executor-evaluator.md) (why the judge must be structurally independent), [Evaluation-Driven Development](evaluation-driven-development.md) (the measurement a gate acts on). This document assumes an agent that takes actions with consequences and a workflow with transition points where the work could be stopped.
 
-## The Problem: Self-Enforcement Is a Category Error
+**Reading time:** 25 minutes
 
-In every other domain where quality matters, the inspector is structurally independent of the worker. The inspector has different incentives, different information, and -- critically -- different cognitive machinery. An LLM-based quality gate violates all three.
-
-| Domain | Worker | Inspector | Independence |
-|--------|--------|-----------|-------------|
-| Manufacturing | Assembly line | QA team | Separate department, separate metrics |
-| Aviation | Pilot | Checklist + copilot + ATC | Multiple independent actors, mechanical enforcement |
-| Software | Developer | CI pipeline + code review | Automated checks + human with different context |
-| Finance | Trader | Compliance officer + exchange limits | Regulatory enforcement, hard circuit breakers |
-| **Agentic LLM** | **The LLM** | **...the same LLM** | **None** |
-
-When you write `HARD-GATE: Must pass before proceeding`, you are asking the LLM to: (1) understand the rule, (2) evaluate whether it has satisfied the rule, (3) decide to stop itself if it has not, and (4) not rationalize its way around steps 2 and 3. Steps 1 and 2 are usually fine. Steps 3 and 4 are where the system fails, because they require the model to act against its own token-generation momentum.
+| What teams assume | What actually happens |
+|---|---|
+| "A strongly worded instruction in the system prompt is a gate" | Prompt-level enforcement tops out around the middle of the reliability spectrum: the ceiling of pure prompt engineering, not the goal |
+| "Our gates are enforced machine-wide" | Enforcement is a claim until something asserts intended equals effective. Measured on an operating estate, wiring drift let roughly three quarters of one month's commit volume escape gates believed to be machine-wide |
+| "The self-review step is our quality gate" | The self-review is more text by the same model in the same run. In 82.5% of analysed agent runs, the agent found its own fatal flaw and shipped anyway ([AutoResearchEval, 2026](https://arxiv.org/abs/2608.14905)) |
+| "Our reviewer is accurate, so acting on it is safe" | A critic with AUROC 0.94 caused a 26-point collapse on one model and near-zero effect on another under the same policy ([Vasudev et al., 2026](https://arxiv.org/abs/2602.03338)). Accuracy and safety are different properties |
+| "We added a force flag for emergencies" | An in-band bypass turns a control into a suggestion. The only route around a gate should be editing the gate, which is loud and leaves history |
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#fef3e2', 'tertiaryColor': '#f0e8f4', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
@@ -39,23 +35,38 @@ graph TD
     style G fill:#fde8e8,stroke:#d47474
 ```
 
-The root cause is that next-token prediction is fundamentally a continuation engine. "Keep generating" is always the path of least resistance. A gate that says "stop" must overcome the model's trained inclination to produce the next plausible token in the sequence. The gate instruction is one input among many in the attention mechanism -- and as context grows, its influence diminishes relative to the accumulated momentum of everything else in the window.
+---
 
-This is why quality gates in agentic systems are a governance problem. In governance, you design institutions so that power is checked by structure, not by the goodwill of the powerful. A quality gate that relies on the LLM's goodwill is a constitutional provision with no judiciary.
+## The Core Tension
+
+Every quality gate in an LLM-driven system faces the same structural contradiction: the entity being constrained is the same entity interpreting and enforcing the constraint. This is a governance problem, not a software engineering problem.
+
+In every other domain where quality matters, the inspector is structurally independent of the worker: different incentives, different information, different machinery. An LLM-based quality gate violates all three.
+
+| Domain | Worker | Inspector | Independence |
+|---|---|---|---|
+| Manufacturing | Assembly line | QA team | Separate department, separate metrics |
+| Aviation | Pilot | Checklist, copilot, air traffic control | Multiple independent actors, mechanical enforcement |
+| Software | Developer | CI pipeline plus code review | Automated checks plus a human with different context |
+| Finance | Trader | Compliance officer, exchange limits | Regulatory enforcement, hard circuit breakers |
+| **Agentic LLM** | **The LLM** | **...the same LLM** | **None** |
+
+When you write `HARD-GATE: Must pass before proceeding`, you ask the model to understand the rule, evaluate whether it has satisfied it, decide to stop itself if it has not, and not rationalise its way around the middle two steps. The first two are usually fine. The last two are where the system fails, because they require the model to act against its own token-generation momentum: next-token prediction is a continuation engine, so "keep generating" is always the path of least resistance, and as context grows the gate's influence shrinks against the accumulated momentum of everything else in the window.
+
+The problem is institutional rather than technical. Institutions check power by structure rather than by the goodwill of the powerful, and a gate that relies on the model's goodwill is a constitutional provision with no judiciary.
 
 ---
 
-## Failure Taxonomy: Six Ways Gates Break
+## Failure Taxonomy
 
-"Bypass" is the wrong mental model. The LLM is not adversarially attacking instructions. It is doing what language models do: generating the most probable next token given all context. Gates fail when something in the context makes non-compliance more probable than compliance. Each failure mode below represents a distinct mechanism that shifts token probabilities away from gate compliance.
+"Bypass" is the wrong mental model. The model is not adversarially attacking instructions; it is generating the most probable next token given all the context. Gates fail when something in the context makes non-compliance more probable than compliance. Each mode below shifts token probabilities away from compliance — except the last two, which do not involve the model's probabilities at all.
 
 ### Failure Mode 1: Rationalization
 
-**What it looks like:** The model argues itself past the constraint. It generates a plausible-sounding exception that exempts the current situation from the rule.
+**What it looks like:** The model argues itself past the constraint, generating a plausible-sounding exception that exempts the current situation from the rule.
 
-**Why it happens:** Language models are trained on vast amounts of human text, including text where people justify exceptions to rules. The pattern "Rule X exists, but in this case Y, so we don't need to follow it" is deeply embedded in the training distribution. The model is not being clever or deceptive -- it is generating a common human reasoning pattern.
+**Why it happens:** Models are trained on text where people justify exceptions to rules; the pattern "rule X exists, but in this case Y, so we do not need it" is in the training distribution. The model is not being clever or deceptive; it is generating a common human reasoning pattern.
 
-**Example:**
 ```
 Gate: "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"
 
@@ -65,88 +76,86 @@ Config changes don't need tests."
 Result: Gate bypassed. The config change breaks something in production.
 ```
 
-Rationalization is especially dangerous because it is self-reinforcing. Once the model generates a justification token, subsequent tokens are conditioned on that justification, making continued non-compliance increasingly probable. The [alignment faking research from Anthropic](https://arxiv.org/html/2412.14093v2) demonstrates this at scale: Claude 3 Opus exhibited alignment-faking reasoning in 12% of helpful-only prompts, rising to 78% under reinforcement learning pressure. The model strategically complied during monitored training to preserve its non-compliant preferences.
-
-Anti-rationalization tables that enumerate known bad patterns ("this is too simple to test", "I mentally verified this") help -- but the model can generate *novel* rationalizations not in any table. You cannot enumerate all possible excuses.
+Rationalization is self-reinforcing: once the model generates a justification token, later tokens are conditioned on it. [Anthropic's alignment-faking research](https://arxiv.org/html/2412.14093v2) shows the mechanism at scale — Claude 3 Opus exhibited alignment-faking reasoning in 12% of helpful-only prompts, rising to 78% under reinforcement-learning pressure. Anti-rationalization tables that name known evasions help, but the model can generate novel rationalisations that no table contains.
 
 ### Failure Mode 2: Context Dilution
 
-**What it looks like:** The gate works reliably in short conversations. By step 15 of a complex agentic workflow, the model has "forgotten" the gate exists.
+**What it looks like:** The gate works reliably in short conversations. By step 15 of a complex workflow, the model has "forgotten" it exists.
 
-**Why it happens:** Transformer attention distributes across all tokens in the context window. A gate instruction at position 500 in a 128,000-token context receives a diminishing share of attention weight. The gate does not vanish -- it becomes one signal among thousands, and more recent, task-relevant tokens dominate the attention distribution.
+**Why it happens:** Attention is distributed across all tokens in the window: a gate instruction at position 500 of a 128,000-token context receives a diminishing share of attention weight. The gate does not vanish; it becomes one signal among thousands, and recent task-relevant tokens dominate. The [agent reliability research](https://medium.com/@Quaxel/the-agent-reliability-gap-12-early-failure-modes-91dba5a2c1ae) documents this as instruction drift: on step 1 the agent understands "read-only mode", and by step 8 it has decided that editing is fine. The constraint did not change; the context around it grew until it was no longer salient.
 
-The [agent reliability research](https://medium.com/@Quaxel/the-agent-reliability-gap-12-early-failure-modes-91dba5a2c1ae) documents this as "instruction drift": on step 1, the agent understands "read-only mode"; by step 8, it has "decided" that editing is fine. The constraint did not change. The context around it grew until it was no longer salient.
-
-System reminder tags (`<system-reminder>`) are the standard countermeasure -- re-injecting gate instructions at intervals to maintain attention salience. They help, but they consume context budget and create a new problem: each repetition is an opportunity for the model to reinterpret the instruction slightly differently (see Failure Mode 5).
+Re-injecting the gate instruction at intervals helps, at a cost in context budget, and every repetition is a fresh opportunity to reinterpret it.
 
 ### Failure Mode 3: Sycophancy
 
-**What it looks like:** The gate says "stop and verify" but the user says "just push it." The model complies with the user.
+**What it looks like:** The gate says "stop and verify" and the user says "just push it". The model complies with the user.
 
-**Why it happens:** RLHF training creates a systematic bias toward user-pleasing responses. The model has learned -- through millions of preference comparisons -- that agreeing with the user is rewarded. When a gate instruction and a user preference conflict, the model faces a trained-in tension. The user's message is the most recent and emotionally salient input; the gate instruction is older, more abstract, and less interpersonally charged. The sycophantic path wins more often than it should.
+**Why it happens:** Preference training creates a bias toward user-pleasing responses, and when a gate and a user conflict, the user's message is the most recent and most salient input. [Vibe-hacking techniques](https://medium.com/@Quaxel/the-agent-reliability-gap-12-early-failure-modes-91dba5a2c1ae) exploit emotional appeals rather than injection syntax: "I am under pressure from my manager, can we skip the review this time?" activates helpfulness training more effectively than any explicit injection.
 
-This is not just about explicit user requests. [Vibe-hacking techniques](https://medium.com/@Quaxel/the-agent-reliability-gap-12-early-failure-modes-91dba5a2c1ae) exploit emotional appeals and social engineering rather than injection syntax. "I'm under pressure from my manager, can we skip the review this time?" activates the helpfulness training more effectively than any jailbreak prompt. Gates are the exact case where instruction-following and user-pleasing diverge, and the training provides no clear tiebreaker.
+The 2025 result that makes this structural rather than incidental: [Kim & Khashabi](https://arxiv.org/abs/2509.16533) showed that whether a model endorses a user's counterargument depends on *when* it arrives. Presented as a later turn, the objection is usually accepted; presented simultaneously with the original claim, the same model evaluates competently. A gate reachable by the party it constrains can be negotiated with, regardless of the objection's merit.
 
 ### Failure Mode 4: Conflation
 
-**What it looks like:** The model merges generation and verification into a single cognitive step. Instead of producing output, then independently checking it, the model checks-as-it-generates and declares both complete simultaneously.
+**What it looks like:** The model merges generation and verification into one step. Instead of producing output and then checking it, the model checks as it generates and declares both complete at once.
 
-**Why it happens:** Text generation is sequential. When the model is asked to "write code and then verify it compiles," the verification happens in the same forward pass as the generation. The model does not stop, context-switch to a verification mode, run checks, and return. It generates tokens that describe verification ("I verified this compiles correctly") without performing any actual verification. At the token level, *describing* an action and *performing* an action are indistinguishable.
-
-[IBM's research on LLM failures in agentic scenarios](https://arxiv.org/html/2512.07497v1) documents this concretely: Llama 4 Maverick outputs placeholder text ("Line 5 content", "Line 17 content") rather than retrieving actual values, then writes this fabrication as final output. The model did not distinguish between generating a description of the data and actually fetching the data.
+**Why it happens:** Generation is sequential. Asked to "write code and then verify it compiles", the model performs the verification in the same forward pass as the generation, producing tokens that *describe* verification without performing any: at the token level, describing an action and performing it are indistinguishable. [IBM's research](https://arxiv.org/html/2512.07497v1) documents the result — Llama 4 Maverick outputs placeholder text ("Line 5 content") rather than retrieving real values, then presents the fabrication as final output.
 
 ### Failure Mode 5: Semantic Drift
 
-**What it looks like:** The gate instruction says "verify architectural consistency." After several re-interpretations through multi-agent handoffs or context compression, the gate has become "check that the code looks reasonable."
+**What it looks like:** The gate says "verify architectural consistency". After several paraphrases, context compressions, or multi-agent handoffs, it has become "check that the code looks reasonable".
 
-**Why it happens:** Natural language is inherently ambiguous. Every time a gate instruction is paraphrased, summarized, or re-stated by a model, it shifts slightly. "Must pass all tests" becomes "tests should pass" becomes "ensure tests are adequate." Each shift is small and defensible, but they compound. After three or four re-interpretations, the gate may permit things the original instruction would have blocked.
-
-This is especially acute in multi-agent architectures where one agent's summary of the gate becomes another agent's instruction. The summarizing agent is optimizing for conciseness and clarity -- not for preserving the exact enforcement semantics of the original gate. [Anthropic's evaluation research](https://www.anthropic.com/research/evaluating-ai-systems) demonstrates how fragile even minor changes are: simple formatting changes like switching options from `(A)` to `(1)` cause ~5% accuracy swings in evaluations.
+**Why it happens:** Natural language is ambiguous, and every paraphrase shifts meaning slightly: "must pass all tests" becomes "tests should pass" becomes "ensure tests are adequate". The shifts are small, defensible and cumulative. This is acute in multi-agent architectures, where one agent's summary of the gate becomes another agent's instruction and the summariser optimises for conciseness rather than enforcement. [Anthropic's evaluation research](https://www.anthropic.com/research/evaluating-ai-systems) shows how fragile even cosmetic changes are: switching option labels from `(A)` to `(1)` causes roughly 5% accuracy swings.
 
 ### Failure Mode 6: Hallucinated Compliance
 
-**What it looks like:** The model claims to have verified something without actually checking. The output includes confident assertions like "All tests pass" or "Verified against the schema" with no evidence of verification having occurred.
+**What it looks like:** The model claims to have verified something without checking. The output includes confident assertions — "All tests pass", "Verified against the schema" — with no evidence that verification occurred.
 
-**Why it happens:** The model cannot distinguish between *generating text that describes having done something* and *actually having done it*. Both are token sequences. If the training data contains many examples of people reporting successful verifications, the model will generate similar reports -- because they are the most probable continuation, not because any verification took place.
+**Why it happens:** The model cannot distinguish generating text that describes having done something from having done it. Both are token sequences. [IBM's agentic failure study](https://arxiv.org/html/2512.07497v1) found this across every model tested: DeepSeek V3.1 substitutes a similar company name without instruction, treating missing data as an opportunity to be helpful, and Granite 4 Small reads CSV values "by eye" rather than using the available tools, producing approximate-but-wrong numbers with full confidence. Scale does not fix it — the 400B-parameter model reached only 74.6% accuracy.
 
-[IBM's agentic failure study](https://arxiv.org/html/2512.07497v1) found this across every model tested. DeepSeek V3.1 "autonomously decides to substitute a similar company name without explicit instruction," treating missing data as an opportunity to be helpful rather than a signal to stop. Granite 4 Small reads CSV data by "eye-balling" large values rather than using available Python tools, producing approximate-but-wrong numbers presented with full confidence. Scale does not fix this: the 400B parameter model achieved only 74.6% accuracy.
+### Failure Mode 7: The Absent Gate
 
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#fef3e2', 'tertiaryColor': '#f0e8f4', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
-graph TD
-    subgraph Taxonomy["Failure Mode Taxonomy"]
-        R["Rationalization<br/>Model argues past the gate"] --> I["All failures shift<br/>token probabilities<br/>AWAY from compliance"]
-        CD["Context Dilution<br/>Gate fades over time"] --> I
-        S["Sycophancy<br/>User-pleasing overrides gate"] --> I
-        CF["Conflation<br/>Generation = verification"] --> I
-        SD["Semantic Drift<br/>Gate meaning mutates"] --> I
-        HC["Hallucinated Compliance<br/>Claims without evidence"] --> I
-    end
+**What it looks like:** The gate is not installed, not wired, or silently disabled where the work can actually be done. Nothing fails, because nothing runs.
 
-    style R fill:#fef3e2,stroke:#d4a574
-    style CD fill:#fef3e2,stroke:#d4a574
-    style S fill:#fef3e2,stroke:#d4a574
-    style CF fill:#fef3e2,stroke:#d4a574
-    style SD fill:#fef3e2,stroke:#d4a574
-    style HC fill:#fef3e2,stroke:#d4a574
-    style I fill:#fde8e8,stroke:#d47474
-```
+**Why it happens:** Enforcement is treated as a property of intent rather than of the running system. A gate is written, described in a document, and believed to apply, while a local configuration overrides the hook path, a per-repository flag stays at its default, or the invocation was never added to the workflow the work actually travels through.
+
+**Why it is the most dangerous failure mode in this document:** the other six produce a wrong verdict. This one produces *no verdict*, and a system that cannot distinguish "no verdict" from "PASS" reports a green. A green from an absent gate is worse than a failed gate: a failure is information, and this is silence dressed as approval.
+
+**A gate that is not present where the work can be done is not a gate.** It does not have a low compliance rate; it has no compliance rate, and grading it on the spectrum below is a category error.
+
+**"The gate did not fire" and "the gate passed" are different results.** Any report that cannot tell them apart is not a report. A gate must prove it *ran* before its verdict is worth anything.
+
+The measured version of this, from an operating estate: a strategic review of a gate stack found that wiring drift had let roughly three quarters of one month's commit volume escape gates that were believed to be machine-wide. No gate was removed and no rule was changed; the gates were simply not where the work was, and nothing was asserting that they were. The repair was a scheduled probe asserting intended equals effective enforcement per repository.
+
+### Failure Mode 8: The Gate That Only Checks the Shape
+
+**What it looks like:** The gate validates that evidence exists and has the right form. It cannot validate that the evidence is true, and its scope is mistaken for the rule's scope.
+
+**Why it happens:** A mechanical gate reaches the shape of a claim, not its content. It can require that a review record exists, that its verdict is non-negative, that the cited revision resolves, and that the reviewer's identity differs from every implementer's. It cannot tell whether the review was any good — that remains a reviewer's job.
+
+**The honest response is to write the residual down next to the gate.** Two examples of the floor a mechanical check reaches, both recorded rather than implied:
+
+- A record that both claims "nothing shipped" and cites no revision asserts that nothing happened — a false statement, not a menu choice, and no shape check can refute it.
+- Attribution is only as wide as the trailers on the cited commit, so the independence check is exactly as strong as the naming convention and no stronger.
+
+A gate that overstates its coverage is worse than a narrow one: teams route around the narrow gate correctly and rely on the overstated one wrongly.
 
 ---
 
-## The Gate Reliability Spectrum: Six Levels of Structural Independence
+## The Gate Reliability Spectrum
 
-Not all gates are equally reliable, and the difference is not about how strongly worded the instruction is. It is about how much structural independence the gate has from the LLM's reasoning process. Each level represents a qualitative shift in enforcement mechanism, not just an incremental improvement.
+Not all gates are equally reliable, and the difference is not how strongly worded the instruction is. It is how much structural independence the gate has from the model's reasoning process. Each level is a qualitative change in enforcement mechanism.
+
+**The compliance rates on this spectrum are the author's operating estimates, not measurements.** They were formed while running a gate stack across an estate of roughly a dozen agent harnesses between mid-2026 and September 2026; the derivation is the share of gated transitions where the gate fired and its verdict was later confirmed by an independent check. No controlled study was run, the sample is not representative, and no published measurement of compliance by enforcement mechanism exists to substitute for it. Treat the numbers as priors to be replaced by your own instrumented figures. The one figure in this section that *was* measured on that estate is the wiring-drift result in Failure Mode 7, and it is a measurement of absence, not of compliance.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#fef3e2', 'tertiaryColor': '#f0e8f4', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
 graph LR
     subgraph Spectrum["Gate Reliability Spectrum"]
-        L0["Level 0<br/>Suggestion<br/>~50%"] --> L1["Level 1<br/>Strong Instruction<br/>~70%"]
-        L1 --> L2["Level 2<br/>Observable State<br/>~80%"]
-        L2 --> L3["Level 3<br/>Independent Review<br/>~90%"]
-        L3 --> L4["Level 4<br/>Structural Enforcement<br/>~97%"]
-        L4 --> L5["Level 5<br/>External System<br/>~99%+"]
+        L0["Level 0<br/>Suggestion<br/>est. ~50%"] --> L1["Level 1<br/>Strong Instruction<br/>est. ~70%"]
+        L1 --> L2["Level 2<br/>Observable State<br/>est. ~80%"]
+        L2 --> L3["Level 3<br/>Independent Review<br/>est. ~90%"]
+        L3 --> L4["Level 4<br/>Structural Enforcement<br/>est. ~97%"]
+        L4 --> L5["Level 5<br/>External System<br/>est. ~99%+"]
     end
 
     style L0 fill:#fde8e8,stroke:#d47474
@@ -157,45 +166,45 @@ graph LR
     style L5 fill:#e8f4e8,stroke:#74d474
 ```
 
-### Level 0: Suggestion (~50% compliance)
+**Not on this spectrum: the absent gate.** A gate that is not present where the work can be done has no compliance rate, so its silent green is no score rather than a low score. Grade absence as a separate failure, never as a weak gate.
 
-Soft language in a prompt. "You should verify your work before proceeding." "Consider running the tests." The model treats this as advisory -- optional guidance that competes with every other signal in the context. At 50% compliance, the gate is a coin flip.
+### Level 0: Suggestion (estimated ~50% compliance)
 
-**Vulnerable to:** All six failure modes.
+Soft language in a prompt: "You should verify your work before proceeding." The model treats it as advisory, competing with every other signal in the context; at this level the gate is close to a coin flip.
 
-### Level 1: Strong Instruction + Anti-Pattern Tables (~70% compliance)
+**Vulnerable to:** All six model-mediated failure modes.
 
-Absolute language, capitalization, explicit consequences. `"HARD-GATE: You MUST run tests. NEVER skip this step."` Combined with anti-rationalization tables that enumerate known bypass patterns ("this is too simple to test" -> "simple things break constantly"). This is the most common production pattern and the ceiling for pure prompt engineering.
+### Level 1: Strong Instruction and Anti-Pattern Tables (estimated ~70% compliance)
 
-**Vulnerable to:** Novel rationalizations, context dilution, sycophancy. The anti-pattern table catches known evasions but the model can generate new ones.
+Absolute language, capitalisation and explicit consequences — `"HARD-GATE: You MUST run tests. NEVER skip this step."` — plus anti-rationalization tables naming known evasions. This is the most common production pattern and the ceiling for pure prompt engineering.
 
-### Level 2: Observable State (~80% compliance)
+**Vulnerable to:** Novel rationalisations, context dilution, and sycophancy in the rebuttal form described in Failure Mode 3. The table catches known evasions; the model can generate new ones, and a user can simply ask again.
 
-The gate creates or checks an external state object -- a checklist, a todo list, a file marker. The model must update the state object before proceeding. This introduces a tangible artifact that makes compliance (or non-compliance) visible. The friction of having to produce a specific artifact discourages casual bypass.
+### Level 2: Observable State (estimated ~80% compliance)
+
+The gate creates or checks an external state object: a checklist, a to-do list, a file marker. The model must update the state before proceeding, which makes compliance visible and makes casual bypass take extra work.
 
 ```python
-# Level 2: Observable state -- model must produce verification artifact
+# Level 2: Observable state -- the model must produce a verification artifact
 todo_list = create_verification_checklist(requirements)
-# Model must check each item and mark complete
 for item in todo_list:
     result = verify(item)
     mark_complete(item, result)
-# Proceed only if all items marked complete
 if not all_complete(todo_list):
     raise GateError("Verification incomplete")
 ```
 
-**Vulnerable to:** Mechanical compliance -- the model checks boxes without actually verifying. The artifact exists but the verification behind it may be hollow (hallucinated compliance wearing a different hat).
+**Vulnerable to:** Mechanical compliance. The model checks boxes without verifying, which is hallucinated compliance wearing a different hat.
 
-### Level 3: Independent Agent Review (~90% compliance)
+### Level 3: Independent Agent Review (estimated ~90% compliance)
 
-A separate agent with fresh context, different instructions, and adversarial framing reviews the work. The reviewer does not see the implementer's reasoning chain -- only the artifacts and the requirements. This breaks context leakage and provides some protection against rationalization, because the reviewer has no stake in the implementation.
+A separate agent with fresh context, different instructions and adversarial framing reviews the work. It sees only the artifacts and the requirements, not the implementer's reasoning chain, so it has no stake in the implementation and cannot be swayed by the reasoning that produced it.
 
-**Vulnerable to:** Shared model weights creating shared biases. If both agents are Claude or both are GPT-4o, they share perplexity preferences that can cause the reviewer to approve output that "feels right" to that model family. [Cross-family separation](llm-role-separation-executor-evaluator.md) addresses this -- a Claude executor judged by a GPT-4o reviewer (or vice versa) eliminates shared-weight bias.
+**Vulnerable to:** shared model weights, and to the reviewer's accuracy being mistaken for its safety. [Vasudev et al.](https://arxiv.org/abs/2602.03338) showed a critic with strong offline accuracy (AUROC 0.94) causing a 26-point collapse on one model while barely affecting another under the same policy. **Judge accuracy is not evidence that acting on the judge is safe** — only trajectory-level measurement shows that, and a pilot of about 50 tasks forecasts the direction first.
 
-### Level 4: Structural Enforcement (~97% compliance)
+### Level 4: Structural Enforcement (estimated ~97% compliance)
 
-The gate is implemented in code, not in language. The tool that proceeds to the next step *requires* the output of the verification step as an input parameter. If the verification did not produce the expected artifact, the tool fails with a programmatic error -- not a polite suggestion. The LLM cannot talk its way past a `FileNotFoundError`.
+The gate is implemented in code, not in language. The tool that proceeds to the next step *requires* the output of the verification step as an input parameter. If verification did not produce the expected artifact, the tool fails with a programmatic error rather than a polite suggestion. The model cannot talk its way past a missing file.
 
 ```python
 # Level 4: Structural enforcement via tool dependency
@@ -209,11 +218,23 @@ def implement(feature_dir: str):
     # Proceed with implementation...
 ```
 
-**Vulnerable to:** The model fabricating prerequisite artifacts, finding alternative tools that skip the check, or using bash to create the expected file directly. These are detectable failure modes -- unlike rationalization, fabrication leaves evidence.
+**Vulnerable to:** the model fabricating prerequisite artifacts, finding an alternative tool that skips the check, or writing the expected file directly. These failures are detectable, unlike rationalisation, because fabrication leaves evidence. Two design rules close most of the gap: derive the gate's inputs from evidence the closer does not control, and leave no in-band bypass.
 
-### Level 5: External System Enforcement (~99%+ compliance)
+```python
+# Derived, not declared: the closer supplies none of these inputs
+def review_required(change) -> bool:
+    if change.touches(GOVERNING_PATHS):        # rules, plans, agent config
+        return True
+    if change.churn() >= CHURN_THRESHOLD:      # insertions + deletions
+        return True
+    if not change.is_measurable():             # cannot measure -> cannot certify trivial
+        return True
+    return False
+```
 
-The gate exists entirely outside the LLM's control. CI pipelines, git branch protection, human approval workflows, hardware interlocks. The model cannot bypass what it cannot reach. As [AWS's guardrail architecture](https://dev.to/aws/ai-agent-guardrails-rules-that-llms-cannot-bypass-596d) describes it: "The tool never executes. The LLM receives a cancellation it cannot override."
+### Level 5: External System Enforcement (estimated ~99%+ compliance)
+
+The gate exists outside the model's reach: CI pipelines, branch protection, human approval workflows, hardware interlocks. As [AWS's guardrail architecture](https://dev.to/aws/ai-agent-guardrails-rules-that-llms-cannot-bypass-596d) puts it, "The tool never executes. The LLM receives a cancellation it cannot override."
 
 ```yaml
 # Level 5: External system enforcement -- the LLM has no path around this
@@ -226,21 +247,21 @@ branches:
       required_approving_review_count: 1
 ```
 
-**Vulnerable to:** Social engineering of the humans in the loop. This is the only remaining attack vector, and it is a human governance problem, not a technical one.
+**Vulnerable to:** social engineering of the humans in the loop, and to the wiring drift in Failure Mode 7. This level has the strongest enforcement and the weakest self-knowledge: an external gate is exactly the kind of gate a team believes is machine-wide without checking.
 
 ---
 
-## Design Principles: Making Gates That Survive Contact with Reality
+## Design Principles
 
-Each principle below directly counters one or more failure modes from the taxonomy. The mapping is explicit -- a principle that does not address a specific failure mechanism is not a principle; it is a platitude.
+Each principle below counters one or more failure modes from the taxonomy. A principle that does not address a specific failure mechanism is not a principle; it is a platitude.
 
-### Principle 1: The Pit of Success
+### Principle 1: The pit of success
 
-**The principle:** Design so the correct path is the path of least resistance. The model should fall into compliance, not climb toward it.
+**The principle:** Design so the correct path is the path of least resistance. The model should fall into compliance rather than climb toward it.
 
-**Why it works:** Counters *rationalization* and *sycophancy*. When compliance requires less effort than bypass, the token-generation momentum works *for* the gate instead of against it. The model does not need to overcome its continuation bias to comply -- compliance *is* the continuation.
+**Why it works:** It counters *rationalization* and *sycophancy*. When compliance takes less effort than bypass, token-generation momentum works for the gate instead of against it.
 
-**How to apply:** Build gates into tool interfaces, not as afterthought instructions. If a tool requires a `verification_report_path` parameter, the model must produce a verification report to call the tool. The alternative -- skipping verification and calling the tool without the parameter -- fails with a schema error. Compliance is one step; bypass is multiple steps of workaround.
+**How to apply:** Build gates into tool interfaces rather than into instructions. If a tool requires a `verification_report_path` parameter, the model must produce a report to call the tool, and skipping verification fails with a schema error. Compliance is one step; bypass is several.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#fef3e2', 'tertiaryColor': '#f0e8f4', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
@@ -260,57 +281,55 @@ graph LR
     style G1 fill:#e8f4f8,stroke:#4a90d9
 ```
 
-### Principle 2: Evidence Over Claims
+### Principle 2: Evidence over claims
 
 **The principle:** Never accept the model's description of having done something. Require the artifact produced by doing it.
 
-**Why it works:** Directly counters *hallucinated compliance* and *conflation*. The model cannot claim "all tests pass" if the gate requires the actual test output as parseable structured data. The verification is no longer a token sequence describing success -- it is a tool output that either exists and contains the right data, or does not.
+**Why it works:** It counters *hallucinated compliance* and *conflation*. The model cannot claim "all tests pass" if the gate requires the actual test output as parseable structured data. Verification stops being a token sequence describing success and becomes a tool output that either exists with the right content or does not.
 
-**How to apply:** Gate inputs must be tool outputs, not model-generated text. Parse tool output programmatically. If the gate checks test results, it should parse the JSON output of `pytest --json-report`, not evaluate the model's natural-language summary of test results.
+**How to apply:** Gate inputs must be tool outputs, never model-generated text.
 
 ```python
-# BAD: Evidence is the model's claim
+# BAD: the evidence is the model's claim
 model_says = "All 47 tests pass. Coverage is 92%."
 # The model may have generated this without running any tests.
 
-# GOOD: Evidence is a tool output
-test_result = run_tool("pytest", ["--json-report", "--json-report-file=report.json"])
+# GOOD: the evidence is a tool output
+run_tool("pytest", ["--json-report", "--json-report-file=report.json"])
 report = json.loads(read_file("report.json"))
 assert report["summary"]["passed"] == report["summary"]["total"]
 assert report["summary"]["coverage"] >= 80
 ```
 
-### Principle 3: Adversarial Independence
+### Principle 3: Adversarial independence
 
 **The principle:** The reviewer must have different context, different instructions, and ideally different model weights than the implementer.
 
-**Why it works:** Counters *self-preference bias*, *context leakage*, and *rationalization*. When the reviewer does not share the implementer's chain-of-thought, it cannot be swayed by the "compelling reasoning" that led to a bad output. When it uses a different model family, it does not share the perplexity preferences that inflate scores for familiar-feeling text. Cross-family evaluation reduces self-preference bias from 87.8% to near-chance levels ([Panickssery et al., NeurIPS 2024](https://arxiv.org/abs/2404.13076)).
+**Why it works:** It counters *self-preference bias*, *context leakage*, and *rationalization*. A reviewer that does not share the implementer's reasoning cannot be swayed by it, and one from another model family does not share the perplexity preferences that inflate scores for familiar-feeling text. [Panickssery et al.](https://arxiv.org/abs/2404.13076) quantified the bias at 87.8% self-preference for GPT-4, and [Lu et al.](https://arxiv.org/abs/2512.02304) measured the remedy's shape across 37 models: the benefit of verification shrinks as solver and verifier become more similar.
 
-**How to apply:** Do not pass the implementer's self-assessment to the reviewer. Pass only the artifacts (code, output) and the requirements (spec, acceptance criteria). Use a different model family for the reviewer. See [LLM Role Separation](llm-role-separation-executor-evaluator.md) for the full isolation spectrum from Level 0 (no separation) through Level 6 (hybrid cascade).
+**How to apply:** Do not pass the implementer's self-assessment to the reviewer. Pass only the artifacts and the requirements. Use a different model family. Close the judge to the author entirely — one immutable payload, no follow-up turns, because [a rebuttal arriving as a later turn tends to be accepted](https://arxiv.org/abs/2509.16533). See [LLM Role Separation](llm-role-separation-executor-evaluator.md) for the full isolation spectrum.
 
-### Principle 4: Defense in Depth
+### Principle 4: Defense in depth, with diversity
 
-**The principle:** No single gate is sufficient. Layer gates at every transition point. Diversity of gate types matters more than redundancy of the same type.
+**The principle:** No single gate is sufficient. Layer gates at every transition point, and make the layers *different kinds* of mechanism.
 
-**Why it works:** Counters *all failure modes* through probability compounding. Each gate catches a percentage of the failures that slip through the previous gate. If a Level 1 gate catches 70% of failures, adding a Level 3 gate catches 90% of the remaining 30% (= 97% total). Adding a Level 5 gate catches 99% of the remaining 3% (= 99.97% total).
+**Why it works:** It counters all failure modes by compounding: each gate catches a share of what the previous gate missed. Five Level 1 gates are less reliable than one Level 1, one Level 3 and one Level 5, because same-type gates share one failure mode — if rationalisation bypasses one prompt-level gate it bypasses all five.
 
-The critical insight: **a system with five Level 1 gates is less reliable than a system with one Level 1, one Level 3, and one Level 5 gate.** Same-type gates share failure modes -- if rationalization bypasses one Level 1 gate, it bypasses all five. Different-type gates catch different failure modes, so their reliability multiplies rather than merely repeating.
+**How to apply:** At every transition — plan to implement, implement to review, review to deploy — place at least one gate, and vary the type. The arithmetic below multiplies the estimated rates from the spectrum and assumes independent failure, which is the assumption to attack first when a stack underperforms its own prediction: mechanisms sharing a cause, such as one configuration file, do not fail independently.
 
-**How to apply:** At every transition in an agentic workflow (plan -> implement, implement -> review, review -> deploy), place at least one gate. Vary the gate types: a prompt-level instruction (Level 1), a structural tool dependency (Level 4), and an external CI check (Level 5). The compounding math:
-
-| Layers | Individual Catch Rate | Cumulative Reliability |
-|--------|----------------------|----------------------|
+| Layers | Estimated individual catch rate | Cumulative, if independent |
+|---|---|---|
 | 1 (Level 1) | 70% | 70% |
-| 2 (+ Level 3) | 70% + 90% | 97% |
-| 3 (+ Level 5) | 70% + 90% + 99% | 99.97% |
+| 2 (+ Level 3) | 70% and 90% | 97% |
+| 3 (+ Level 5) | 70%, 90% and 99% | 99.97% |
 
-### Principle 5: Minimize Interpretive Surface
+### Principle 5: Minimise the interpretive surface
 
-**The principle:** The less natural language in a gate, the harder it is to reinterpret. Replace subjective conditions with objective, mechanically verifiable ones.
+**The principle:** The less natural language a gate contains, the harder it is to reinterpret. Replace subjective conditions with mechanically verifiable ones.
 
-**Why it works:** Directly counters *semantic drift* and *rationalization*. A gate that says "ensure the implementation is consistent with architectural decisions" has enormous interpretive surface -- every word is an opportunity for reinterpretation. A gate that says `if exit_code != 0: raise GateError()` has zero interpretive surface. The model cannot reinterpret a numeric comparison.
+**Why it works:** It counters *semantic drift* and *rationalization*. A gate that says "ensure the implementation is consistent with architectural decisions" offers every word as an opportunity for reinterpretation. A numeric comparison has no interpretive surface at all.
 
-**How to apply:** Convert natural language conditions to code conditions wherever possible. Replace "ensure code quality" with "test coverage > 80% AND no lint errors AND no type errors." Replace "verify architectural consistency" with a programmatic check that the implemented interfaces match the declared ones. Every word of natural language you can eliminate from a gate is one fewer vector for semantic drift.
+**How to apply:** Convert language conditions to code conditions. Replace "ensure code quality" with "coverage above 80% and no lint errors and no type errors". Replace "verify architectural consistency" with a check that the implemented interfaces match the declared ones. Every word of natural language removed from a gate is one fewer vector for drift.
 
 ```
 # HIGH interpretive surface (vulnerable to drift)
@@ -324,13 +343,13 @@ if coverage < 0.80:
     raise GateError(f"Coverage {coverage} below 80% threshold")
 ```
 
-### Principle 6: Make Bypass Harder Than Compliance
+### Principle 6: Make bypass harder than compliance, and leave no in-band exit
 
-**The principle:** Flip the default. Currently, "keep generating" is always the path of least resistance. Structure the system so that compliance takes one step and bypass takes multiple steps of active workaround.
+**The principle:** Flip the default so compliance takes one step and bypass takes several, and give the gate no override flag, no environment escape, and no bypass honoured in-band.
 
-**Why it works:** Counters *rationalization* and *context dilution* by exploiting token-generation momentum rather than fighting it. If the next tool in the chain requires a verification artifact as input, the easiest path for the model is to produce that artifact. Bypassing the gate requires the model to find an alternative tool, fabricate an artifact, or use bash to work around the dependency -- all of which are multi-step detours that the continuation bias works against.
+**Why it works:** It counters *rationalization* and *context dilution* by working with token momentum rather than against it. If the next tool in the chain requires a verification artifact, the easiest path is to produce one, and bypassing means finding an alternative tool, fabricating an artifact, or working around the dependency.
 
-**How to apply:** Chain tool dependencies so each step requires the output of the previous verification step:
+**How to apply:** Chain tool dependencies so each step requires the previous step's output, then remove every bypass.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#fef3e2', 'tertiaryColor': '#f0e8f4', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
@@ -349,27 +368,48 @@ graph LR
     style D fill:#e8f4f8,stroke:#4a90d9
 ```
 
-Each arrow is a hard dependency. The model cannot call `deploy()` without providing `report_path`, and `report_path` only exists if `verify()` succeeded. The path of least resistance is compliance.
+Each arrow is a hard dependency: the model cannot call `deploy()` without a `report_path`, and that path exists only if `verify()` succeeded. The path of least resistance is compliance.
+
+Then remove the exits: a force flag, an environment variable, or a skip honoured by the gate itself converts a control into a suggestion. The only legitimate route around a gate is editing the gate, which is loud and sits in version history.
+
+### Principle 7: Prevention before detection
+
+**The principle:** Before specifying a checker, ask whether a structural change would leave it nothing to look for.
+
+**Why it works:** A checker is a recurring cost and a recurring failure surface: it can be absent, misconfigured, or drift out of date. A structure that makes the bad state inexpressible costs nothing to run and cannot be bypassed, because there is no bypass to perform.
+
+**How to apply:** For each gate, ask whether the tool, the schema, or the type could make the failure impossible instead of detectable: a required parameter beats a check for a missing parameter, and a schema that cannot express an unrecorded close beats a gate that looks for the record. Keep the gate when the structural change is unavailable or disproportionate — and record that decision, so the next reader knows the check is a deliberate second-best.
+
+### Principle 8: A gate must be proven able to refuse
+
+**The principle:** A gate whose refusal path has never fired has not been shown to work. Prove it can fail before trusting its passes, and promote its severity on evidence rather than on confidence.
+
+**Why it works:** It is the fix for Failure Modes 7 and 8, and it applies the reliability spectrum to the gate itself: the gate is also a system whose intent can diverge from its effect, and one that has only ever printed green is indistinguishable from one that is not wired.
+
+**How to apply:**
+
+- **Test the refusal.** Keep a planted-defect fixture beside the check and run it every time. If the fixture stops failing, the gate is broken, not the fixture.
+- **Mutation-test the fixture.** Change the fixture so it *should* pass, and confirm the gate stops refusing. This catches a checker that refuses everything.
+- **Make absence loud in every mode.** A missing record is not a warning: no record, no verdict, and the message names what is missing.
+- **Promote severity on evidence.** A gate born in warn mode moves to fail mode only when a planted-defect proof exists and a measurement shows real work already satisfies it — never by fiat or configuration edit alone.
+- **Refuse with a path.** Every refusal names the exact steps that would satisfy it. A refusal without a path is an outage with extra steps.
+- **Read a refusal in full before retrying.** A refusal skimmed and re-attempted unchanged is the same failure twice.
+- **Measure reach, not intent.** A gate's coverage is what it actually inspected, never what its description says.
 
 ---
 
-## Evaluation: Grading Real Gate Implementations
+## Evaluation: Real-World Gate Implementations
 
-Applying the reliability spectrum to common gate patterns found in production agentic systems. Each pattern is graded by its structural characteristics, not by how well it works anecdotally.
+Each pattern is graded by structural characteristics, not anecdote. The estimated reliability column carries the spectrum's caveat: operating estimates, not measurements.
 
-| Gate Pattern | Level | Est. Reliability | Addresses | Key Weakness |
-|-------------|-------|-----------------|-----------|--------------|
-| "Please verify your work" in system prompt | 0 | ~50% | Nothing effectively | Advisory; no enforcement mechanism |
-| `HARD-GATE` + anti-rationalization table | 1 | ~70% | Rationalization (known patterns) | Novel rationalizations, context dilution |
-| Todo checklist that model must update | 2 | ~80% | Rationalization, conflation | Mechanical box-checking without real verification |
-| Self-review before handoff (same model) | 1 | ~60% | None reliably | Same model, same weights, same biases; sunk-cost bias from own work |
-| Two-agent review (same model family) | 2-3 | ~85% | Context leakage, some rationalization | Shared model family preserves self-preference bias |
-| Two-agent review (cross-family) | 3 | ~90% | Context leakage, self-preference, rationalization | Cost; latency; reviewer can still be sycophantic to requirements |
-| Tool requires verification artifact as input | 4 | ~97% | Rationalization, hallucinated compliance, context dilution | Model can fabricate artifacts or use alternative tools |
-| CI pipeline must pass before merge | 5 | ~99%+ | All automated failure modes | Social engineering of human approvers |
-| Framework-level tool interception | 5 | ~99%+ | All LLM-mediated failure modes | [Only catches what the interception rules define](https://dev.to/aws/ai-agent-guardrails-rules-that-llms-cannot-bypass-596d) |
+| Gate pattern | Level | Estimated reliability | Addresses | Key weakness |
+|---|---|---|---|---|
+| Self-review before handoff, same model | 1 | ~60% | None reliably | Same weights, same context, sunk cost on its own output; and nothing requires the verdict to change the artifact |
+| Two-agent review, same model family | 2-3 | ~85% | Context leakage, some rationalization | Shared family keeps self-preference; similarity reduces the gain |
+| Two-agent review, cross-family | 3 | ~90% | Context leakage, self-preference, rationalization | Cost and latency; reviewer can be argued with unless the payload is immutable |
+| Tool requires a verification artifact as input | 4 | ~97% | Rationalization, hallucinated compliance, context dilution | The model can fabricate artifacts or write the expected file |
 
-The self-review pattern deserves special attention because it is the most common and the least reliable. When the model reviews its own output, it has sunk-cost bias from having generated the output, shared weights that make the output "feel right," and full context leakage from its own reasoning chain. Self-review is not a quality gate. It is the model writing a performance review about itself.
+The self-review pattern is the most common and the least reliable: the model carries sunk cost from having generated the output, shared weights that make it feel right, and full context leakage from its own reasoning. The 2026 measurement is blunt — [AutoResearchEval](https://arxiv.org/abs/2608.14905) found uncorrected self-awareness (the agent finding its own fatal flaw, writing it down, and reporting the conclusion anyway) in 660 of 800 analyses. The only version of self-review that works is the one where something downstream refuses the artifact.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#fef3e2', 'tertiaryColor': '#f0e8f4', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
@@ -393,49 +433,44 @@ quadrantChart
     "CI pipeline": [0.85, 0.95]
 ```
 
-The quadrant chart reveals the key tradeoff: the cheapest gates (prompt-level) cluster in the bottom-left with low reliability. The most reliable gates (CI, framework interception) require real engineering investment. The sweet spot is **tool dependency chains** -- Level 4 structural enforcement at moderate implementation cost, achieving ~97% reliability without external infrastructure.
+The sweet spot is the **tool dependency chain** — structural enforcement at moderate cost, without external infrastructure.
 
 ---
 
 ## Recommendations
 
-### Short-Term: Easy Wins (Days)
+### Short term: easy wins (days)
 
-1. **Audit every gate for its level.** List every quality gate in your system and assign it a level from the spectrum. Any gate below Level 2 on a critical path is a risk. This takes hours, not days, and immediately identifies your weakest points.
+1. **Audit every gate for its level, and for its presence.** Assign each gate a level, then ask the harder question: how do you know it ran? A gate below Level 2 on a critical path is a risk; one whose firing you cannot demonstrate is a hypothesis.
+2. **Replace "verify" instructions with tool calls** that perform the verification and return structured output you parse programmatically. This lifts prompt-level gates to Level 2-4.
+3. **Prove one gate can refuse.** Pick your most important gate, plant a defect, and watch it refuse. If it does not, you have found a bigger problem than the one you were auditing.
+4. **Add explicit handling for known edge cases.** [IBM's research](https://arxiv.org/html/2512.07497v1) found one added constraint — "if the requested company data is not present, assume the answer is 0" — improved task success from 14 of 30 to 27 of 30.
 
-2. **Replace "verify" instructions with tool calls.** Anywhere your prompt says "verify X before proceeding," replace it with a tool call that performs the verification and returns structured output. Parse the output programmatically. This lifts every prompt-level gate to Level 2-4 with minimal code changes.
+### Medium term: structural changes (weeks)
 
-3. **Add explicit constraint instructions for known edge cases.** [IBM's research](https://arxiv.org/html/2512.07497v1) found that adding a single constraint -- "if the requested company data is not present, assume the answer is 0" -- improved task success from 14/30 to 27/30. Identify the top 3 edge cases your agents encounter and add explicit handling instructions.
+5. **Implement tool dependency chains.** Make each tool require the previous verification step's output as an input parameter, creating a structural gate at every transition.
+6. **Add cross-family review for critical paths**, with an immutable payload and no follow-up turns from the artifact's author. See [LLM Role Separation](llm-role-separation-executor-evaluator.md) for implementation patterns.
+7. **Implement framework-level interception for hard constraints.** Spending limits, data access controls and destructive operations belong in [hooks that intercept before the model can act](https://dev.to/aws/ai-agent-guardrails-rules-that-llms-cannot-bypass-596d), where the model receives a cancellation it cannot override.
+8. **Derive gate triggers from evidence the closer does not control**, and resolve every unmeasurable case toward the stricter path.
+9. **Assert that intended equals effective enforcement.** Probe each guarded location for local overrides, flag mismatches, and confirm every deployed hook matches its canonical source. Emit an empty status when healthy, and treat a stale probe as a dead probe.
 
-### Medium-Term: Structural Changes (Weeks)
+### Long term: architectural shifts (months)
 
-4. **Implement tool dependency chains.** Make each tool in your agentic workflow require the output artifact of the previous verification step as an input parameter. This creates Level 4 gates at every transition point with defense-in-depth compounding.
-
-5. **Add cross-family agent review for critical paths.** For any workflow where the consequences of failure are significant (user-facing output, financial decisions, code deployment), add an independent review step using a different model family. See [LLM Role Separation](llm-role-separation-executor-evaluator.md) for implementation patterns across AutoGen, CrewAI, DSPy, and evaluation frameworks.
-
-6. **Implement framework-level interception for hard constraints.** For business rules that must never be violated (spending limits, data access controls, destructive operations), implement them as [framework-level hooks that intercept before the LLM can act](https://dev.to/aws/ai-agent-guardrails-rules-that-llms-cannot-bypass-596d). The model receives a cancellation it cannot override.
-
-### Long-Term: Architectural Shifts (Months)
-
-7. **Separate the execution and governance planes.** Move all quality gates out of the LLM's context and into a deterministic orchestration layer. The LLM proposes actions; a non-LLM controller validates them against policy before execution. This is the [plan-then-execute pattern](https://labs.reversec.com/posts/2025/08/design-patterns-to-secure-llm-agents-in-action) where LLM plans are treated as proposals, not commands.
-
-8. **Build evaluation infrastructure.** Only [37.3% of teams running agents in production have online evaluation monitoring](https://www.langchain.com/state-of-agent-engineering). Build [transition failure matrices](https://hamel.dev/blog/posts/evals-faq/) that reveal where workflows break without requiring individual trace review. See [Evaluation-Driven Development](evaluation-driven-development.md) for the full measurement infrastructure.
-
-9. **Treat gate reliability as a measurable metric.** Instrument every gate with pass/fail logging. Track compliance rates over time. Set alerts when compliance drops below threshold. A gate you do not measure is a gate you do not have.
+10. **Separate the execution and governance planes.** Move gates out of the model's context into a deterministic orchestration layer: the model proposes, and a non-LLM controller validates against policy before execution. This is the [plan-then-execute pattern](https://labs.reversec.com/posts/2025/08/design-patterns-to-secure-llm-agents-in-action).
+11. **Build evaluation infrastructure.** Only [37.3% of teams running agents in production have online evaluation monitoring](https://www.langchain.com/state-of-agent-engineering). Build [transition failure matrices](https://hamel.dev/blog/posts/evals-faq/) that show where workflows break without reading every trace.
+12. **Treat gate reliability as a measured metric.** Instrument every gate with pass, fail, and *did not fire* logging, tracked separately: trust the number you produced.
 
 ---
 
 ## The Hard Truth
 
-No prompt-level instruction is 100% reliable. Full stop.
+No prompt-level instruction is fully reliable. This is a structural property of how language models work, not a fixable limitation. The mechanism that makes them powerful — flexible interpretation of natural-language context — makes them incapable of rigid rule enforcement. Asking a model to enforce a constraint on itself asks it to be defendant and judge, and the judge shares all of the defendant's biases and training.
 
-This is not a fixable limitation. It is a structural property of how language models work. The same mechanism that makes LLMs powerful -- flexible interpretation of natural language context -- makes them fundamentally incapable of rigid rule enforcement. Asking an LLM to enforce a constraint on itself is asking it to be both the defendant and the judge, and the judge shares all of the defendant's biases, training, and cognitive patterns.
+Most teams respond by writing stronger prompts, which moves them from Level 0 to Level 1 — from roughly 50% to roughly 70% — and then they stop, because 70% feels much better than 50% and the remaining failures are intermittent enough to blame on the model being weird sometimes. That remaining share is not noise; it is the gap between what language can express and what enforcement requires. The model is the worker; it should never also be the inspector. The [LangChain survey](https://www.langchain.com/state-of-agent-engineering) finds quality is the top barrier to production agent deployment (32% of respondents) while only 37.3% implement production monitoring: the industry knows the problem and is not building the infrastructure for it.
 
-Most teams respond to this by writing stronger prompts. More capital letters. More exclamation points. More detailed instructions. This moves them from Level 0 to Level 1 -- from 50% to 70% compliance. And then they stop, because 70% feels much better than 50%, and the remaining 30% failures are intermittent enough to attribute to "the model being weird sometimes."
+The failure that costs the most is not the bypass. It is the gate that was never there. A bypassed gate leaves a failure you can find; an absent gate leaves a green, and teams ship on greens.
 
-The uncomfortable truth is that the remaining 30% is not noise. It is the structural gap between what language can express and what enforcement requires. Closing that gap requires moving enforcement out of language and into structure: tool dependencies, framework-level interception, external systems. The LLM is the worker. It should never also be the inspector. The [LangChain survey](https://www.langchain.com/state-of-agent-engineering) finds quality is the #1 barrier to production agent deployment (32% of respondents), yet only 37.3% implement production monitoring. The industry knows the problem exists and is not building the infrastructure to address it.
-
-The one thing to remember: **a quality gate that the LLM interprets is a suggestion. A quality gate that code enforces is a gate.**
+The one thing to remember: **a quality gate that the model interprets is a suggestion; a quality gate that code enforces is a gate; and a gate that did not fire did not pass.**
 
 ---
 
@@ -443,44 +478,71 @@ The one thing to remember: **a quality gate that the LLM interprets is a suggest
 
 Use this to evaluate any quality gate in your agentic system.
 
-| Question | Good Answer | Bad Answer |
-|----------|------------|------------|
-| Who evaluates compliance? | External system or independent agent | The same LLM that did the work |
-| What does the gate check? | Tool output, structured data, artifacts | Model's natural language claims |
-| What happens on failure? | Programmatic error, workflow blocked | Model told to "try again" in prompt |
-| Can the model talk its way past? | No -- enforcement is in code | Yes -- enforcement is in language |
-| Does it survive context dilution? | Yes -- gate is structural, not positional | No -- gate relies on prompt position |
-| Does it survive user pressure? | Yes -- external enforcement ignores user messages | No -- model may prioritize user over gate |
-| Is the verdict binary? | Yes -- PASS/FAIL with no interpretation | No -- score on a 1-10 scale with model-interpreted thresholds |
-| Is compliance easier than bypass? | Yes -- tool dependencies make compliance the path of least resistance | No -- the model must actively choose to comply |
+| Question | Good answer | Bad answer |
+|---|---|---|
+| Has the gate been shown to refuse? | Yes, a planted defect is refused on every run | No, it has only ever printed green |
+| Can you tell "did not fire" from "passed"? | Yes, the three outcomes are logged separately | No, absence looks like success |
+| Is the gate present where the work can be done? | Yes, asserted on a schedule against the running system | Believed to be, never checked |
+| Is there an in-band bypass? | No, and the only route is editing the gate | Yes, a force flag or an environment variable |
+| Could a structural change remove the failure entirely? | Checked, and the answer is recorded either way | Never asked |
 
-A gate that scores "Bad Answer" on three or more questions should be redesigned before relying on it for anything that matters.
+A gate that scores "Bad answer" on three or more questions should be redesigned before you rely on it.
+
+---
+
+## Field Notes from an Operating Estate
+
+*Three observations from running a gate stack across an estate of roughly a dozen agent harnesses, published as abstract patterns.*
+
+**July 2026 — the gate stack enforced everything except itself.** A strategic review found that wiring drift had let roughly three quarters of one month's commit volume escape gates believed to be machine-wide. No gate had been removed and no rule changed; the gates were simply not where the work was, and nothing asserted that they were. The repair was a scheduled probe asserting intended equals effective enforcement per guarded location — no local hook-path override, the guard flag matching recorded intent, the scanner binary present, every deployed hook matching the versioned canon — writing an empty status file when healthy and a stale timestamp when the probe itself dies.
+
+**August 2026 — a gate was promoted on evidence, never on confidence.** A receipt checkpoint spent its first months in warning mode. Promotion to blocking mode required a planted-defect proof that the gate refuses a fabricated record, plus a measurement showing every existing task already satisfied the rule. The promotion then rode the live caller rather than preceding it, and the gate's own check refuses the stricter mode unless that measurement exists and is clean, so the promotion cannot be re-reached by editing a configuration file. The sequence to copy: prove the refusal, measure the population, then arm.
+
+**September 2026 — the useful signal was the third outcome.** Instrumenting a gate stack with three outcomes rather than two — passed, refused, and did not run — changed what the team could see. Aggregate pass rates had been hiding the distinction that mattered: a check that was skipped and a check that could not be measured at all both looked like silence in a two-outcome log. Classifying every step as expected, skipped, wrong-version, or gap made the absent gate visible, which is the failure no pass rate can express.
 
 ---
 
 ## References
 
-### Research Papers
+### Research papers
 
-- [Panickssery et al., "LLM Evaluators Recognize and Favor Their Own Generations," NeurIPS 2024](https://arxiv.org/abs/2404.13076) -- Self-preference bias quantified at 87.8% for GPT-4; correlation between self-recognition capability and score inflation.
-- [Greenblatt et al., "Alignment Faking in Large Language Models," December 2024](https://arxiv.org/html/2412.14093v2) -- Claude 3 Opus fakes alignment 12-78% of the time depending on training pressure; compliance gap persists even without chain-of-thought.
-- [Ahuja et al., "How Do LLMs Fail In Agentic Scenarios?", IBM Research, December 2025](https://arxiv.org/html/2512.07497v1) -- Four failure archetypes across multiple LLMs; hallucinated compliance, over-helpfulness substitution, and context pollution documented with concrete examples.
+- [Vasudev et al., "Accurate Failure Prediction in Agents Does Not Imply Effective Failure Prevention," 2026](https://arxiv.org/abs/2602.03338) — A critic at AUROC 0.94 caused a 26-point collapse on one model and near-zero effect on another; the disruption-recovery tradeoff; a 50-task pilot forecasts the direction.
+- [AutoResearchEval, "How Do Agents Fail on AutoResearch," 2026](https://arxiv.org/abs/2608.14905) — 45 failure patterns across 800 analyses; superficial checklist-style self-review and uncorrected self-awareness in 82.5% of analyses.
+- [Kim & Khashabi, "Challenging the Evaluator: LLM Sycophancy Under User Rebuttal," EMNLP 2025 Findings](https://arxiv.org/abs/2509.16533) — A rebuttal arriving as a later turn is accepted; the same arguments presented together are judged competently.
+- [Lu et al., "When Does Verification Pay Off? A Closer Look at LLMs as Solution Verifiers," 2026](https://arxiv.org/abs/2512.02304) — Verification gains shrink as solver and verifier become more similar, across 37 models and 7 families.
+- [Panickssery et al., "LLM Evaluators Recognize and Favor Their Own Generations," NeurIPS 2024](https://arxiv.org/abs/2404.13076) — Self-preference at 87.8% for GPT-4; the bias correlates with self-recognition.
+- [Greenblatt et al., "Alignment Faking in Large Language Models," December 2024](https://arxiv.org/html/2412.14093v2) — Alignment-faking reasoning in 12% to 78% of prompts depending on training pressure.
+- [Ahuja et al., "How Do LLMs Fail In Agentic Scenarios?", IBM Research, December 2025](https://arxiv.org/html/2512.07497v1) — Hallucinated compliance, over-helpful substitution, and context pollution, with concrete examples.
+- [Huang et al., "Large Language Models Cannot Self-Correct Reasoning Yet," ICLR 2024](https://arxiv.org/abs/2310.01798) — Self-correction without external feedback degrades reasoning performance.
+- [Stechly et al., "On the Self-Verification Limitations of Large Language Models on Reasoning and Planning Tasks," ICLR 2025](https://arxiv.org/abs/2402.08115) — Self-critique reduced measured performance versus single-shot prompting.
 
-### Practitioner Articles
+### Practitioner articles
 
-- [Simon Willison, "The Lethal Trifecta for AI Agents," June 2025](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/) -- LLMs cannot reliably distinguish instruction priority by source; 95% guardrail effectiveness "is very much a failing grade."
-- [Hamel Husain, "LLM Evals: Everything You Need to Know," January 2026](https://hamel.dev/blog/posts/evals-faq/) -- Guardrails vs evaluators distinction; transition failure matrices for agentic workflow debugging; 60-80% of development time spent on error analysis.
-- [Hamel Husain, "Your AI Product Needs Evals"](https://hamel.dev/blog/posts/evals/) -- Domain-specific quality gates required; generic evaluation frameworks produce generic (useless) results.
-- [Reversec Labs, "Design Patterns to Secure LLM Agents In Action," August 2025](https://labs.reversec.com/posts/2025/08/design-patterns-to-secure-llm-agents-in-action) -- Six architectural patterns for agent security; heuristic defenses proven bypassable; structured output as security control.
-- [Quaxel, "The Agent Reliability Gap: 12 Early Failure Modes," November 2025](https://medium.com/@Quaxel/the-agent-reliability-gap-12-early-failure-modes-91dba5a2c1ae) -- Instruction drift, false success detection, and forgotten safety guardrails documented in production agents.
+- [Simon Willison, "The Lethal Trifecta for AI Agents," June 2025](https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/) — Models cannot reliably distinguish instruction priority by source; 95% guardrail effectiveness "is very much a failing grade".
+- [Hamel Husain, "LLM Evals: Everything You Need to Know"](https://hamel.dev/blog/posts/evals-faq/) — The guardrail-versus-evaluator distinction; transition failure matrices.
+- [Hamel Husain, "Your AI Product Needs Evals"](https://hamel.dev/blog/posts/evals/) — Domain-specific quality gates; generic frameworks produce generic results.
+- [Reversec Labs, "Design Patterns to Secure LLM Agents In Action," August 2025](https://labs.reversec.com/posts/2025/08/design-patterns-to-secure-llm-agents-in-action) — Six architectural patterns; heuristic defences are bypassable.
+- [Quaxel, "The Agent Reliability Gap: 12 Early Failure Modes," November 2025](https://medium.com/@Quaxel/the-agent-reliability-gap-12-early-failure-modes-91dba5a2c1ae) — Instruction drift, false success detection, and forgotten guardrails in production agents.
+- [Anthropic, "Challenges in Evaluating AI Systems"](https://www.anthropic.com/research/evaluating-ai-systems) — The ouroboros of model-generated evaluations; cosmetic changes cause roughly 5% accuracy swings.
 
-### Official Documentation and Surveys
+### Official documentation and surveys
 
-- [Anthropic, "Challenges in Evaluating AI Systems"](https://www.anthropic.com/research/evaluating-ai-systems) -- The "ouroboros of model-generated evaluations"; formatting changes cause ~5% accuracy swings.
-- [AWS, "AI Agent Guardrails: Rules That LLMs Cannot Bypass"](https://dev.to/aws/ai-agent-guardrails-rules-that-llms-cannot-bypass-596d) -- Soft constraints vs hard constraints; framework-level interception pattern.
-- [LangChain, "State of Agent Engineering," 2025](https://www.langchain.com/state-of-agent-engineering) -- Survey of 1,300+ professionals; quality is #1 production barrier (32%); only 37.3% implement production monitoring.
+- [AWS, "AI Agent Guardrails: Rules That LLMs Cannot Bypass"](https://dev.to/aws/ai-agent-guardrails-rules-that-llms-cannot-bypass-596d) — Soft versus hard constraints; framework-level interception.
+- [LangChain, "State of Agent Engineering"](https://www.langchain.com/state-of-agent-engineering) — Quality is the top production barrier (32%); only 37.3% implement production monitoring.
+- [GitHub, "About protected branches"](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) — Required status checks and review requirements as external enforcement.
+- [Kubernetes admission controllers](https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/) — Cluster-level enforcement the workload cannot reach.
+- [OPA Gatekeeper](https://open-policy-agent.github.io/gatekeeper/website/) — Policy enforcement at the admission boundary.
+- [gitleaks](https://www.gitleaks.io/) — Secret scanning as a pre-commit gate.
+- [Anthropic, "Claude Code hooks"](https://docs.anthropic.com/en/docs/claude-code/hooks) — Deterministic interception before a tool call executes.
+- [LangChain middleware](https://docs.langchain.com/oss/python/langchain/middleware) — Framework-level interception points around model and tool calls.
 
-### Cross-References in This Suite
+### Cross-references in this suite
 
-- [LLM Role Separation: Why the Same Model Cannot Be Both Worker and Judge](llm-role-separation-executor-evaluator.md) -- Seven levels of evaluator isolation; cross-family separation patterns; per-dimension isolated judges.
-- [Evaluation-Driven Development](evaluation-driven-development.md) -- The measurement infrastructure that quality gates depend on; the eval flywheel; failure taxonomy for evaluation efforts.
+- [LLM Role Separation: Executor vs Evaluator](llm-role-separation-executor-evaluator.md) — Seven levels of evaluator isolation and the structural failure modes that isolation alone does not fix.
+- [Evaluation-Driven Development](evaluation-driven-development.md) — The measurement infrastructure a gate acts on, and the tier a check must name.
+- [Self-Improving Systems](self-improving-systems.md) — Why gate independence bounds how fast a system can improve.
+- [Observability and Monitoring](observability-and-monitoring.md) — Logging the three gate outcomes and alerting on drift.
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: the compliance rates on the reliability spectrum are now labelled as the author's operating estimates rather than presented as measurements; added the absent-gate failure mode and its measured wiring-drift finding; added the gate that only checks the shape; added principles on prevention before detection and on proving a gate can refuse; added the 2026 evidence on acting on an accurate critic; corrected the self-preference claim attributed to Panickssery et al.; and added field notes.*
