@@ -1,10 +1,26 @@
 # Observability and Monitoring for LLM Systems: Why You Cannot Debug Non-Determinism with grep
 
-Traditional application monitoring assumes a contract: given input X, the system produces output Y. When Y is wrong, you read the logs, find the line that diverged, and fix it. LLM systems violate this contract at every level. The same input produces different outputs across calls. "Correct" is a distribution, not a value. And the most dangerous failures look exactly like success -- confident, well-formatted, completely wrong.
+**Thesis:** An LLM system's failures are quality failures, not availability failures -- and conventional logging cannot see them, so you have to instrument the semantic layer or you are monitoring nothing.
+
+**Prerequisites:** [Evaluation-Driven Development](evaluation-driven-development.md) (evals as the quality signal), [Context Engineering](context-engineering.md) (what the model actually received), [RAG: From Concept to Production](rag-from-concept-to-production.md) (retrieval stages worth tracing).
+
+**Reading time:** 22 minutes
 
 ---
 
-## The Problem: Your Logging Is Lying to You
+Traditional application monitoring assumes a contract: given input X, the system produces output Y. When Y is wrong, you read the logs, find the line that diverged, and fix it. LLM systems violate this contract at every level. The same input produces different outputs across calls. "Correct" is a distribution, not a value. And the most dangerous failures look exactly like success -- confident, well-formatted, completely wrong.
+
+| What teams assume | What actually happens |
+|---|---|
+| "The status code was 200, so it worked" | A 200 with nominal latency is fully compatible with a wrong answer; HTTP telemetry cannot see correctness ([Anthropic](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)) |
+| "Logging the API call is enough" | You need the assembled prompt, the retrieved context and the tool arguments, not the request line |
+| "Latency and error-rate alerts cover production" | Quality degrades with no infrastructure signal at all -- the system stays fast and available while getting worse |
+| "Our provider dashboard is our observability" | Provider dashboards lag, exclude your retrieval and prompt logic, and cannot see your quality definition |
+| "An eval pass rate tells us quality" | An aggregate hides the distribution; a 92% pass rate with the failures concentrated in one intent is a broken system |
+| "Pick the tool, then instrument" | Instrument on OpenTelemetry first, then the tool is swappable; the reverse order is a migration |
+| "Observability is an infrastructure cost" | It is the only way to see the product: 89% of teams running agents in production now report having observability ([LangChain](https://www.langchain.com/stateofaiagents)) |
+
+## The Core Tension
 
 There is a fundamental mismatch between what traditional observability captures and what you need to understand an LLM system. A conventional HTTP service logs request, response, status code, latency. If the status code is 200, the service is working. If the latency is under your SLA, the service is fast enough. These binary signals -- working/broken, fast/slow -- have been the foundation of monitoring for decades.
 
@@ -50,7 +66,7 @@ graph TD
 
 ---
 
-## Failure Taxonomy: Seven Ways LLM Observability Breaks
+## Failure Taxonomy
 
 ### Failure Mode 1: Logging the Wrong Layer
 
@@ -141,9 +157,11 @@ graph TD
 
 The minimum viable level for any production LLM system is **Level 2** (tracing). Below that, you are operating blind when things go wrong. Level 3 should be the target within the first month of production deployment.
 
+The 2026 survey data on where teams actually sit is sobering: among teams running agents in production, 52.4% run offline evaluations and 37.3% run online evaluations, while 29.5% report no evaluation at all -- and quality remains the most-cited barrier to shipping agents, ahead of cost and latency ([LangChain, State of Agent Engineering](https://www.langchain.com/stateofaiagents)). Most production systems are therefore at Level 1 or Level 2 while their failure modes require Level 3 or above.
+
 ---
 
-## Principles: What to Actually Build
+## Design Principles
 
 ### Principle 1: Log at the Semantic Layer, Not the Transport Layer
 
@@ -395,9 +413,11 @@ Essential dashboard panels:
 
 ---
 
-## The Observability Tool Landscape
+## Evaluation: Real-World Systems
 
-The LLM observability market has consolidated around three integration approaches: proxy-based (intercept API calls), SDK-based (instrument code), and OTel-native (extend existing telemetry). The choice depends on your existing infrastructure, your instrumentation budget, and how deep you need to see.
+The category is no longer emerging. The LLM observability and evaluation market is estimated at $2.69B in 2026 and forecast to reach $9.26B by 2030, and Gartner expects LLM observability investment to reach 50% of GenAI deployments by 2028, up from roughly 15% at the start of 2026 ([MarkTechPost](https://www.marktechpost.com/2026/08/09/top-llm-observability-and-evaluation-platforms-in-2026-langfuse-langsmith-braintrust-arize-and-more-compared)). The platform field has consolidated into four camps: AI-native platforms (Langfuse, LangSmith, Braintrust, Arize, Opik), gateways that observe as a side effect of proxying (Helicone, Portkey), APM vendors extending existing products (Datadog), and open-source evaluation libraries (Arize Phoenix, DeepEval, MLflow, RAGAS).
+
+Two ownership changes since the start of 2026 matter more than any feature comparison, because both touch the portability bet this section recommends. ClickHouse acquired Langfuse in January 2026; the MIT core, the self-hosted build and Langfuse Cloud all continue, but the roadmap is now set inside a database company. Traceloop, the company behind OpenLLMetry, joined ServiceNow in March 2026 and its technology is being folded into ServiceNow's AI Control Tower; OpenLLMetry itself remains open source. Neither change is a reason to avoid either project, and both are a reason to keep your instrumentation in the portable layer rather than in a vendor SDK.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#fef3e2', 'tertiaryColor': '#f0e8f4', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
@@ -417,25 +437,37 @@ quadrantChart
 
 | Platform | Integration | Open Source | Self-Host | Eval Built-in | Best For | Free Tier |
 |----------|------------|------------|-----------|--------------|----------|-----------|
-| [**Langfuse**](https://langfuse.com/) | SDK | Yes (MIT) | Yes | LLM-as-judge, custom | Open-source, prompt management, typed traces | 50K obs/mo |
-| [**Helicone**](https://www.helicone.ai/) | Proxy (1 line) | Yes | Yes | Basic | Fastest setup, cost tracking, session replay | 100K req/mo |
-| [**Braintrust**](https://www.braintrust.dev/) | SDK | Partial | Yes | CI/CD-blocking evals | Eval-first teams, regression prevention | 1M spans/mo |
-| [**Arize Phoenix**](https://phoenix.arize.com/) | SDK | Yes | Self-hosted | Drift, hallucination detection | ML teams, model quality monitoring | Unlimited (self-hosted) |
-| [**LangSmith**](https://smith.langchain.com/) | SDK (1 env var) | No | Enterprise | Advanced LLM-as-judge | LangChain/LangGraph ecosystems | 5K traces/mo |
+| [**Langfuse**](https://langfuse.com/) (now part of ClickHouse) | SDK | Yes (MIT core) | Yes, same codebase as Cloud | LLM-as-judge, custom, CI/CD gates | Open-source tracing with prompt management and typed traces | 50K units/mo (Hobby) |
+| [**Helicone**](https://www.helicone.ai/) | Proxy (1 line) | Yes | Yes | Basic | Fastest setup, cost tracking, session replay | 50K requests/mo |
+| [**Braintrust**](https://www.braintrust.dev/) | SDK | Partial | Yes | CI/CD-blocking evals | Eval-first teams, regression prevention | -- |
+| [**Arize Phoenix**](https://phoenix.arize.com/) | SDK | Source-available (Elastic License 2.0), not OSI open source | Self-hosted | Drift, hallucination detection | ML teams, model quality monitoring | Free self-hosted; Phoenix Pro is a flat monthly plan |
+| [**LangSmith**](https://smith.langchain.com/) | SDK (1 env var) | No | Enterprise | Advanced LLM-as-judge | LangChain/LangGraph ecosystems | 5K base traces/mo |
 | [**Datadog LLM**](https://www.datadoghq.com/) | SDK (auto) | No | No | Via OTel | Enterprise with existing Datadog | N/A |
-| [**Traceloop/OpenLLMetry**](https://www.traceloop.com/) | OTel-native | Yes | Yes | Basic | Teams with existing OTel stacks | OSS |
+| [**Traceloop/OpenLLMetry**](https://www.traceloop.com/) (now part of ServiceNow) | OTel-native | Yes | Yes | Basic | Teams with existing OTel stacks | OSS |
+| [**MLflow**](https://mlflow.org/) | SDK | Yes (Apache 2.0, Linux Foundation) | Yes | Basic tracing and evaluation | Teams already using MLflow for the model lifecycle | OSS |
+| [**W&B Weave**](https://wandb.ai/site/weave/) | SDK | No | No | Yes | Teams already on Weights & Biases | 1 GB/mo |
+
+Read the license column before the feature column. "Open source" and "source-available" are different commitments: an Elastic License 2.0 project can restrict a hosted competing service in ways an MIT or Apache 2.0 project cannot, and that difference is the whole question when you are choosing what your production telemetry depends on.
 
 **Decision framework:**
 
 - **"I need visibility in 15 minutes"** -- Helicone (proxy, one line change). You get cost tracking, request logging, and session replay. You do not get deep pipeline tracing.
-- **"I need deep pipeline tracing and evals"** -- Langfuse (open-source, self-hostable) or Braintrust (eval-first). Both are framework-agnostic.
+- **"I need deep pipeline tracing and evals"** -- Langfuse (MIT core, self-hostable) or Braintrust (eval-first). Both are framework-agnostic.
 - **"I am already on LangChain/LangGraph"** -- LangSmith integrates with one environment variable. But you are locked to the LangChain ecosystem; [outside it, teams must assemble the orchestration layer themselves](https://www.braintrust.dev/articles/best-ai-observability-platforms-2025).
 - **"I already have Datadog/Grafana/Prometheus"** -- Use [OpenTelemetry GenAI semantic conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) with OTel Collector routing to your existing backends. [Datadog natively maps OTel GenAI conventions](https://www.datadoghq.com/blog/llm-otel-semantic-convention/) to its LLM Observability features.
 - **"I need ML-grade drift detection"** -- Arize Phoenix, designed for embedding drift analysis and hallucination detection.
 
-The strategic bet is **OpenTelemetry**. The `gen_ai.*` semantic conventions (currently in Development status) are being adopted by Datadog, Langfuse, Traceloop, and OpenLIT. Instrumenting with OTel now gives you vendor portability -- you can switch backends without re-instrumenting your code.
+The strategic bet is **OpenTelemetry**, and it got stronger in 2026 rather than weaker. The `gen_ai.*` semantic conventions moved into a dedicated repository with an active GenAI registry, and the conventions are now emitted by first-party agent tooling as well as third-party instrumentations: cloud providers map them in their managed services, GitHub's agent telemetry exposes `gen_ai.*` spans, and coding agents offer opt-in OTLP export. Instrumenting with OTel gives you vendor portability -- you can switch backends without re-instrumenting your code. Treat OTel support as a hard buying requirement rather than a nice-to-have, because a platform that cannot consume OTLP is a platform you cannot leave.
 
 ---
+
+## Field Notes from an Operating Estate
+
+- **July 2026 -- silence and health are indistinguishable without machinery.** A single-operator estate had a scheduled keepalive job that had been failing for roughly three months. Nothing noticed, because nothing was watching: a sweep of the estate found that no component scheduled the health check and no alert path existed at all, so the failure was invisible until someone looked. The rule the estate adopted from that measurement is the one worth copying: every service states its health observably, and failure is detected by the system before it is felt by the user. "Loudly" is not a property of the service; it is a property of the monitoring around it.
+
+- **July 2026 -- a dashboard that renders "no items" when the source is down is worse than no dashboard.** An estate consolidated its human-facing items into one surface. The failure that followed the consolidation was not missing data but false data: an unreachable source rendered as an empty list, which reads exactly like "nothing to do". The fix was a rule stated as an invariant: an unreachable source renders as unreachable, never as empty; nothing expires silently; and every in-flight item displays its age, loudly when overlong. A monitoring surface that cannot distinguish quiet from broken converts one polling problem into an estate-wide blind spot.
+
+- **September 2026 -- a total that silently excluded rows.** A spend digest reported a monthly total built from telemetry records whose cost field was sometimes recorded as unknown. The total looked authoritative and was not: rows with an unset cost field were simply absent from the sum. The lesson generalizes to every aggregate you build on model telemetry -- an "unknown" bucket must be counted and alerted on, not skipped, because a metric that quietly drops rows reports a number nobody can act on.
 
 ## Recommendations
 
@@ -469,7 +501,7 @@ The strategic bet is **OpenTelemetry**. The `gen_ai.*` semantic conventions (cur
 
 Most teams building with LLMs have better observability for their Redis cache than for the component that generates their product's core value. They can tell you the p99 latency of a key-value lookup but cannot tell you why their system told a customer the wrong refund policy yesterday.
 
-This is not a tooling problem. The tools exist. Langfuse, Helicone, Braintrust, Arize Phoenix, and OpenTelemetry all provide robust LLM observability. The problem is that teams treat LLM monitoring as if it were the same problem as traditional APM: check that the API is up, check that latency is acceptable, done. This mindset is a category error. **An LLM system that is "up" and "fast" can still be silently wrong 20% of the time, and traditional monitoring will never tell you.**
+This is not a tooling problem. The tools exist. Langfuse, Helicone, Braintrust, Arize Phoenix, MLflow and OpenTelemetry all provide robust LLM observability. The problem is that teams treat LLM monitoring as if it were the same problem as traditional APM: check that the API is up, check that latency is acceptable, done. This mindset is a category error. **An LLM system that is "up" and "fast" can still be silently wrong 20% of the time, and traditional monitoring will never tell you.**
 
 The uncomfortable truth is that LLM observability is not an infrastructure investment -- it is a product quality investment. It requires building evaluation into the monitoring pipeline, not just alerting on errors. It requires treating quality as a continuous signal, not a binary gate. And it requires accepting that you will never be "done" with observability because non-deterministic systems require ongoing measurement the way deterministic systems do not. The system that measures itself is the system that improves. The system that does not is guessing.
 
@@ -518,8 +550,19 @@ The uncomfortable truth is that LLM observability is not an infrastructure inves
 ### Research Papers
 - [Panickssery et al., NeurIPS 2024](https://arxiv.org/abs/2404.13076) -- LLM self-preference bias: GPT-4 prefers its own outputs 87.8% of the time vs. 47.6% for humans
 
+### 2026 Platform and Market Changes
+- [MarkTechPost: Top LLM Observability and Evaluation Platforms in 2026](https://www.marktechpost.com/2026/08/09/top-llm-observability-and-evaluation-platforms-in-2026-langfuse-langsmith-braintrust-arize-and-more-compared) -- Market sizing, the four platform camps, and the license and OTel-status comparison behind the table above
+- [ClickHouse acquires Langfuse](https://clickhouse.com/blog/clickhouse-acquires-langfuse-open-source-llm-observability) -- The January 2026 acquisition, with the continuity commitments for the MIT core, self-hosting and Langfuse Cloud
+- [Traceloop is joining ServiceNow](https://traceloop.com/blog/traceloop-is-joining-servicenow) -- The March 2026 acquisition and the commitment that OpenLLMetry stays open source
+- [LangChain: State of Agent Engineering](https://www.langchain.com/stateofaiagents) -- Survey data on production agent adoption, evaluation coverage and the barriers teams report
+- [Arize Phoenix](https://phoenix.arize.com/) -- Source-available (Elastic License 2.0) tracing and evaluation, with the license distinction that the table above records
+
 ### Related Documents in This Suite
 - [Evaluation-Driven Development](evaluation-driven-development.md) -- The measurement infrastructure that feeds production monitoring
 - [LLM Role Separation: Executor vs. Evaluator](llm-role-separation-executor-evaluator.md) -- Why evaluation cascades require structurally independent judges
 - [Quality Gates in Agentic Systems](quality-gates-in-agentic-systems.md) -- How quality gates connect to observability via guardrail and evaluator spans
 - [Cost Engineering for LLM Systems](cost-engineering-for-llm-systems.md) -- Cost attribution and token economics that observability must track
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: the platform table now records the 2026 ownership changes (Langfuse into ClickHouse, Traceloop into ServiceNow) and corrects Arize Phoenix from "open source" to source-available under the Elastic License 2.0; the LangSmith and Helicone free tiers were corrected to their current limits; the OpenTelemetry `gen_ai.*` conventions are no longer described as in Development status; and field notes from an operating estate were added.*

@@ -1,24 +1,29 @@
 # Human-in-the-Loop Patterns: Designing the Boundary Between Human Judgment and Machine Autonomy
 
-Full autonomy is the destination everyone talks about and almost nobody should start with. The teams that build trustworthy AI systems begin with humans approving everything, then earn the right to reduce oversight -- not the other way around.
+**Thesis:** Human oversight is not a phase to pass through on the way to autonomy -- it is a permanent architectural feature, and its quality is set by what triggers escalation, not by how many approvals you can route.
 
 **Prerequisites:** [Quality Gates in Agentic Systems](quality-gates-in-agentic-systems.md) (gate reliability spectrum, why self-enforcement fails), [AI-Native Solution Patterns](ai-native-solution-patterns.md) (the seven architectural patterns, build stages with human checkpoints), [Security and Safety](security-and-safety.md) (the threat model that makes human oversight necessary).
 
+**Reading time:** 28 minutes
+
 ---
 
-## The Problem: The Autonomy Paradox
+Full autonomy is the destination everyone talks about and almost nobody should start with. The teams that build trustworthy AI systems begin with humans approving everything, then earn the right to reduce oversight -- not the other way around.
+
+## The Core Tension
 
 The promise of AI agents is that they act on your behalf. The reality is that acting on your behalf means making decisions you have not reviewed, with consequences you have not approved, based on reasoning you cannot fully inspect. The more capable the agent, the larger the blast radius of a bad decision.
 
 This creates a paradox: **the systems that would benefit most from autonomy are the ones where autonomy is most dangerous.** A customer service chatbot that can resolve billing disputes autonomously is valuable precisely because billing disputes involve money -- and involving money is precisely why you cannot let the chatbot act without oversight. A coding agent that deploys to production is valuable because deployment is consequential, and consequential actions are the ones that demand human review.
 
-| What teams want | What they actually need |
+| What teams assume | What actually happens |
 |---|---|
 | "The agent should just handle it" | The agent should handle 80% and escalate 20% |
 | "Remove the human bottleneck" | Move the human to a higher-leverage position |
 | "Full automation saves money" | Approval fatigue from over-automation costs more |
 | "Ship fast, fix later" | The damage from an unsupervised wrong action is irreversible |
 | "AI is good enough now" | Good enough on average still fails catastrophically on edge cases |
+| "More approvals mean more safety" | Approval volume above what a human can sustain degrades every approval, including the one that mattered |
 
 The tension is not autonomy vs. control. It is **where to draw the line, and how to move it over time.** Every system needs a different boundary, and the boundary should shift as the system proves itself -- not as the team gets impatient.
 
@@ -46,65 +51,65 @@ The implication for system design is direct: the goal is not to eliminate human 
 
 ---
 
-## Failure Taxonomy: How Human-in-the-Loop Goes Wrong
+## Failure Taxonomy
 
 Human-in-the-loop is not inherently good. Implemented badly, it destroys the value of automation without providing real safety. Seven distinct failure modes explain how.
 
 ### Failure Mode 1: The Stutter-Step Agent
 
-**What it looks like:** The agent pauses for approval on every action. "May I read this file?" "May I search for this term?" "May I write this function?" The human approves 98% of requests without reading them.
+**What it looks like:** The agent pauses for approval on every action -- "May I read this file?" "May I search for this term?" -- and the human approves 98% of requests without reading them.
 
-**Why it happens:** The system treats all actions as equal risk. Reading a file and deleting a database share the same approval flow. The developer who built the system conflated "human oversight" with "human approves everything." The result is a system that provides the appearance of oversight with none of the substance -- the human is not evaluating decisions, they are dismissing interruptions.
+**Why it happens:** The system treats all actions as equal risk, so reading a file and deleting a database share one approval flow. The builder conflated "human oversight" with "human approves everything", which produces the appearance of oversight with none of the substance: the human is not evaluating decisions, they are dismissing interruptions.
 
-**The damage:** Approval fatigue is not just annoying; it is actively dangerous. [Cordum.io's analysis](https://cordum.io/blog/human-in-the-loop-ai-patterns) identifies the metric: "If approvers are approving >95% of requests in <10 seconds, you probably have too many low-value approval gates." When humans approve everything reflexively, they will also approve the one action that should have been blocked. The human has been trained by the system to stop paying attention.
+**The damage:** [Cordum.io's analysis](https://cordum.io/blog/human-in-the-loop-ai-patterns) supplies the metric -- "If approvers are approving >95% of requests in <10 seconds, you probably have too many low-value approval gates." A human trained to approve reflexively will also approve the one action that should have been blocked.
 
 ### Failure Mode 2: Approval Theater
 
-**What it looks like:** The system routes actions through an approval workflow, but the approver lacks the context, expertise, or time to make a meaningful decision. They see "Agent wants to execute SQL query" without seeing the query, the target database, or the potential impact.
+**What it looks like:** Actions route through an approval workflow, but the approver lacks the context, expertise or time to decide. They see "Agent wants to execute SQL query" without the query, the target database or the impact.
 
-**Why it happens:** The approval UX was designed for compliance, not for decision-making. The system proves that a human was in the loop, but the human was not equipped to add value. This is especially common in enterprise settings where "a human approved it" is a checkbox requirement rather than a genuine safety mechanism.
+**Why it happens:** The approval UX was designed for compliance, not for decision-making. It is common wherever "a human approved it" is a checkbox requirement rather than a safety mechanism.
 
-**The damage:** False confidence. The organization believes it has human oversight. It has a paper trail showing approvals. When something goes wrong, the audit log shows a human approved the action -- but the human had no way to know it was wrong. The approval provided legal cover, not safety.
+**The damage:** False confidence. The organization believes it has oversight; what it has is a paper trail. When something goes wrong the log shows a human approved it -- but the human had no way to know it was wrong. The approval provided legal cover, not safety.
 
 ### Failure Mode 3: The Context Gap
 
-**What it looks like:** The agent has been working for 15 steps. It escalates a decision to a human. The human sees the decision but not the 15 steps of reasoning that led to it. They cannot evaluate whether the decision is correct because they lack the context the agent has accumulated.
+**What it looks like:** The agent has worked for 15 steps, escalates a decision, and the human sees the decision but not the reasoning behind it.
 
-**Why it happens:** Handoff protocols assume the human can pick up where the agent left off. But the agent's context window contains the full chain of observations, tool outputs, and intermediate reasoning. The human gets a summary -- or worse, just the final question. Evaluating a decision without its context is guesswork, not judgment.
+**Why it happens:** Handoff protocols assume the human can pick up where the agent left off, but the agent's context holds the full chain of observations, tool outputs and intermediate reasoning. The human gets a summary, or just the final question. Evaluating a decision without its context is guesswork, not judgment.
 
-**The damage:** Either the human rubber-stamps the decision (because they cannot evaluate it, and saying "I don't know" feels like admitting incompetence) or they reject it conservatively (because uncertainty defaults to "no"), blocking legitimate actions and slowing the system.
+**The damage:** Either the human rubber-stamps it -- because saying "I don't know" feels like admitting incompetence -- or rejects it conservatively, because uncertainty defaults to "no", blocking legitimate actions.
 
 ### Failure Mode 4: The Escalation Cliff
 
-**What it looks like:** The system operates autonomously for 95% of cases. For the remaining 5%, it escalates to a human -- but the escalated cases are the hardest, most ambiguous decisions in the system. The human, who has not been actively monitoring the system, is suddenly asked to make expert-level judgments on edge cases.
+**What it looks like:** The system runs autonomously for 95% of cases and escalates the remaining 5% -- the hardest, most ambiguous decisions in the system. A human who has not been monitoring is suddenly asked for expert judgment on edge cases.
 
-**Why it happens:** Progressive autonomy was implemented correctly for routine cases but the escalation path was not designed. The system self-selected for difficulty: everything easy was handled automatically, and everything hard was dumped on the human. Without continuous exposure to the system's reasoning, the human is not calibrated for these decisions.
+**Why it happens:** Progressive autonomy was implemented for routine cases but the escalation path was not designed. The system self-selected for difficulty, and without continuous exposure to its reasoning the human is not calibrated for what arrives.
 
-**The damage:** Worse decision quality than if the human had been involved all along. The human lacks both the context of the specific case and the calibration that comes from seeing many cases. This is the "expert on call" anti-pattern -- the expert is only called for emergencies, has no situational awareness, and makes worse decisions under pressure.
+**The damage:** Worse decisions than if the human had been involved all along, because they lack both the case context and the calibration that comes from seeing many cases. This is the "expert on call" anti-pattern.
 
 ### Failure Mode 5: Role Confusion
 
-**What it looks like:** Nobody knows who should approve what. A financial decision gets routed to an engineer. A technical architecture decision gets routed to a product manager. Or worse: all escalations go to one person who becomes a bottleneck.
+**What it looks like:** Nobody knows who should approve what. A financial decision reaches an engineer, an architecture decision reaches a product manager, or every escalation lands on one person who becomes the bottleneck.
 
-**Why it happens:** The system was built with a single "human approver" role rather than role-based routing. Different decisions require different expertise, but the approval workflow treats all humans as interchangeable. [OWASP's AI Agent Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html) emphasizes this: risk classification must map to specific roles, not to a generic approval queue.
+**Why it happens:** The system was built with a single "human approver" role rather than role-based routing, so all humans are treated as interchangeable. [OWASP's AI Agent Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html) is explicit that risk classification must map to specific roles, not to a generic approval queue.
 
-**The damage:** Either decisions are made by people without the relevant expertise (leading to bad approvals) or the one person who *does* have the expertise becomes the bottleneck for every action (destroying throughput).
+**The damage:** Decisions are made without relevant expertise, or the one person who has it becomes the bottleneck for every action.
 
 ### Failure Mode 6: No Timeout Handling
 
-**What it looks like:** The agent pauses for approval. The human is in a meeting, or asleep, or on vacation. The agent waits indefinitely. A time-sensitive action misses its window. Or the agent is configured to auto-approve on timeout, silently bypassing oversight for the most complex cases -- the ones that took the human longest to evaluate.
+**What it looks like:** The agent pauses for approval; the human is in a meeting, asleep, or on vacation. The agent waits indefinitely and a time-sensitive action misses its window -- or the system auto-approves on timeout, silently bypassing oversight for the cases that took longest to evaluate.
 
-**Why it happens:** The approval workflow was designed for the happy path where humans respond promptly. Timeout behavior was either not specified or defaulted to "proceed" (which negates the safety mechanism) or "block" (which halts critical workflows).
+**Why it happens:** The workflow was designed for the happy path where humans respond promptly. Timeout behavior was unspecified, or defaulted to "proceed" (which negates the safety mechanism) or "block" (which halts critical workflows).
 
-**The damage:** Either the system fails silently when humans are unavailable, or it bypasses safety when it should not. Both outcomes undermine trust.
+**The damage:** Either the system fails silently when humans are unavailable, or it bypasses safety when it should not. Both undermine trust.
 
 ### Failure Mode 7: Oversight Decay
 
-**What it looks like:** The system launches with rigorous human review. After three months, the approval rate is 99.5%. The team concludes oversight is unnecessary and removes it. Six months later, the system silently drifts into a failure mode that review would have caught.
+**What it looks like:** The system launches with rigorous review. After three months the approval rate is 99.5%, the team concludes oversight is unnecessary, and removes it. Six months later the system drifts into a failure mode review would have caught.
 
-**Why it happens:** The team confuses "no failures during oversight" with "the system does not need oversight." But oversight was the mechanism preventing failures. Removing it removes both the safety net and the feedback loop that kept the system calibrated. This is survivorship bias applied to safety systems.
+**Why it happens:** The team confuses "no failures during oversight" with "the system does not need oversight", when oversight was the mechanism preventing failures. Removing it removes both the safety net and the feedback loop that kept the system calibrated -- survivorship bias applied to safety systems.
 
-**The damage:** The system operates without oversight in exactly the conditions where it has not been tested unsupervised. The first failure after oversight removal tends to be large, because the feedback mechanisms that would have caught early drift no longer exist.
+**The damage:** The system operates unsupervised in exactly the conditions where it has never been tested unsupervised, and the first failure tends to be large.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#fef3e2', 'tertiaryColor': '#f0e8f4', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
@@ -131,7 +136,7 @@ graph TD
 
 ---
 
-## The Four Levels of Human Involvement
+## The Oversight Spectrum
 
 Not all human-in-the-loop implementations are the same. The distinction is *when* and *how* the human participates relative to the agent's action. Each level suits different risk profiles, and most production systems combine multiple levels for different action categories.
 
@@ -339,9 +344,9 @@ def classify_by_cost(action: dict) -> str:
     return "vp_approve"
 ```
 
-**2. Confidence scores.** The agent's own uncertainty signals when it needs help. When the model's confidence drops below a threshold, or when multiple internal assessments disagree, escalate. [Maxim AI's evaluation research](https://www.getmaxim.ai/articles/llm-as-a-judge-vs-human-in-the-loop-evaluations-a-complete-guide-for-ai-engineers) identifies three specific uncertainty signals: low confidence scores, conflicting signals from multiple evaluators, and missing context that the agent cannot fill.
+**2. Confidence scores.** The agent's own uncertainty is a signal. Escalate when confidence drops below a threshold or when internal assessments disagree. [Maxim AI's evaluation research](https://www.getmaxim.ai/articles/llm-as-a-judge-vs-human-in-the-loop-evaluations-a-complete-guide-for-ai-engineers) names three uncertainty signals: low confidence, conflicting evaluators, and missing context the agent cannot fill.
 
-**3. Action categories.** Classify actions by reversibility, blast radius, and external visibility. [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html) provides concrete thresholds: tool calls per minute (30 limit), failed call tracking, injection attempt flagging, and session cost monitoring.
+**3. Action categories.** Classify by reversibility, blast radius and external visibility. [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html) gives concrete thresholds: 30 tool calls per minute, failed-call tracking, injection-attempt flagging and session cost monitoring.
 
 ```python
 # Action-category-based escalation
@@ -364,9 +369,9 @@ RISK_TO_LEVEL = {
 }
 ```
 
-**4. Anomaly detection.** Even within auto-approved categories, unusual patterns should trigger escalation. An agent that normally makes 5 API calls per task suddenly making 50 is anomalous regardless of the risk category of each individual call. [Reco.ai](https://www.reco.ai/hub/guardrails-for-ai-agents) describes this as "machine learning-based anomaly detection" with baseline behavior profiles and alerts on significant deviation.
+**4. Anomaly detection.** Unusual patterns should escalate even inside an auto-approved category: an agent that normally makes 5 API calls per task and suddenly makes 50 is anomalous regardless of each call's risk. [Reco.ai](https://www.reco.ai/hub/guardrails-for-ai-agents) describes baseline behaviour profiles with alerts on significant deviation.
 
-**5. Novelty detection.** Actions the system has never performed before, or actions on resources it has never touched, warrant human review regardless of their risk category. A system that has been safely writing to `config.yaml` for months should still escalate the first time it writes to `production.env`.
+**5. Novelty detection.** Actions the system has never performed, or resources it has never touched, warrant review whatever their category. A system that has safely written `config.yaml` for months should still escalate its first write to `production.env`.
 
 ### The Escalation Decision Flow
 
@@ -396,7 +401,7 @@ The critical design decision is the **default when triggers disagree**. If the c
 
 ---
 
-## Principles for Effective Human-in-the-Loop
+## Design Principles
 
 ### Principle 1: Approval Must Be a Decision, Not a Ritual
 
@@ -565,6 +570,14 @@ TIMEOUT_POLICIES = {
 
 Never default to "approve" on timeout for critical or high-risk actions. If a critical action cannot get a human decision within two hours, the correct behavior is to halt and alert, not to proceed unsupervised.
 
+### Principle 6: Ask Only What Cannot Be Derived
+
+**The principle:** A question whose answer is derivable from a recorded intent, a standing policy, or the system's own state must never be put to a human. Resolve it, act, and leave an audit trail.
+
+**Why it works:** This is the cure for approval fatigue, and the only one that scales. Failure Mode 1 and Failure Mode 7 are the same disease from opposite ends: too many low-value questions train the human to stop reading, and a human who has stopped reading is the reason oversight gets declared unnecessary later. Every question you do not ask protects the credibility of the ones you do. The test is not "could a human answer this?" -- almost anything passes that -- but "would the answer be different without the human?" If not, the question is a routing bug.
+
+**How to apply:** Before any escalation is sent, classify it. Three classes are legitimate: a decision the recorded intent does not determine, a genuine trade-off between two recorded intents, and an action that is irreversible or touches resources outside the system's own boundary. Everything else is a derived answer wearing a question's clothes. One corollary follows: a question with an obvious default is not a question -- if you already know what the human will answer, you have already answered it.
+
 ---
 
 ## Human-in-the-Loop for Evaluation
@@ -596,27 +609,7 @@ graph TD
     style FIX fill:#fde8e8,stroke:#d47474
 ```
 
-The cost math makes this tiered approach necessary: automated evaluation costs [500-5000x less](https://www.getmaxim.ai/articles/llm-as-a-judge-vs-human-in-the-loop-evaluations-a-complete-guide-for-ai-engineers) than human review. You cannot afford human review for every output. But you cannot trust automated evaluation alone, especially in specialized domains.
-
-### Calibration Workflows
-
-Human evaluators must be calibrated against each other and against the system's rubric. Without calibration, "human evaluation" is just one person's subjective opinion presented as ground truth.
-
-**Calibration protocol:**
-
-1. **Anchor set:** 50-100 pre-evaluated examples with known-good ratings. New evaluators rate these before starting real evaluations. Their ratings must correlate with the anchor ratings at r > 0.8.
-2. **Overlap evaluations:** 10-20% of items are evaluated by multiple humans independently. Inter-annotator agreement (Cohen's kappa > 0.7) is the minimum threshold for usable labels.
-3. **Disagreement resolution:** When evaluators disagree, a senior reviewer adjudicates. The resolved label and the reasoning are added to the anchor set. This is where the evaluation rubric gets sharpened -- disagreements reveal ambiguity in the criteria.
-
-### Active Learning for Human Labels
-
-Not all outputs are equally informative to label. [Maxim AI](https://www.getmaxim.ai/articles/llm-as-a-judge-vs-human-in-the-loop-evaluations-a-complete-guide-for-ai-engineers) identifies three active learning mechanisms for selecting which outputs to route to human evaluation:
-
-- **Uncertainty sampling:** When the LLM judge's confidence is low, route to human. These are the cases where the automated evaluation is least reliable.
-- **Diversity sampling:** Ensure human-reviewed samples cover the full distribution of output types, not just edge cases. This prevents the training data from becoming biased toward anomalies.
-- **Disagreement routing:** When multiple LLM judges disagree, route to human. Cross-judge disagreement is a strong signal that the case is genuinely ambiguous.
-
-The human labels from these mechanisms feed back into two loops: retraining the LLM judge (improving Tier 2 accuracy) and expanding the golden dataset (improving Tier 1 coverage). Over time, this reduces the volume that reaches Tier 3 -- but it never eliminates it, because new edge cases continuously emerge.
+The cost math makes this tiered approach necessary: automated evaluation costs [500-5000x less](https://www.getmaxim.ai/articles/llm-as-a-judge-vs-human-in-the-loop-evaluations-a-complete-guide-for-ai-engineers) than human review. You cannot afford human review for every output, and you cannot trust automated evaluation alone in specialized domains. Two selection rules keep the human tier honest: route on low judge confidence and on cross-judge disagreement, and sample for diversity rather than only for edge cases so the human-reviewed set does not skew toward anomalies. Human labels then feed two loops -- retraining the judge and expanding the golden set -- which reduce the volume reaching the human tier without ever eliminating it.
 
 ---
 
@@ -626,9 +619,7 @@ Human-in-the-loop is not just a technical pattern. It is an organizational desig
 
 ### Role-Based Access Control for Agent Actions
 
-Agent actions must be governed by the same RBAC principles as human actions. [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html) mandates: "Grant agents the minimum tools required for their specific task" with "per-tool permission scoping (read-only vs. write, specific resources)."
-
-[Reco.ai's guardrails guide](https://www.reco.ai/hub/guardrails-for-ai-agents) extends this with contextual access: "Modify permissions dynamically based on context, such as time, environment, or sensitivity." An agent that has write access during business hours but read-only access outside them is implementing contextual RBAC.
+Agent actions must be governed by the same RBAC principles as human actions. [OWASP](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html) mandates that agents receive the minimum tools their task requires, with per-tool permission scoping (read-only versus write, and specific resources). [Reco.ai's guardrails guide](https://www.reco.ai/hub/guardrails-for-ai-agents) adds contextual access: permissions modified dynamically by time, environment or sensitivity, so an agent may hold write access during business hours and read-only access outside them.
 
 The RBAC model for agents has three layers:
 
@@ -638,13 +629,7 @@ The RBAC model for agents has three layers:
 
 ### Audit Trails for Compliance
 
-Every agent action -- approved, rejected, or autonomous -- must produce an immutable audit record. [OWASP's schema](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html) captures: event type, severity, agent/session/user identifiers, timestamps, tool names, and sanitized parameters (redact passwords, API keys, tokens). [Reco.ai](https://www.reco.ai/hub/guardrails-for-ai-agents) adds: "Decision outcomes link back to specific prompts or datasets" with immutable, tamper-evident logs and defined retention policies.
-
-The audit trail serves three audiences:
-
-- **Operators** need real-time visibility into what the agent is doing and why.
-- **Compliance teams** need evidence that policies were followed and approvals were obtained.
-- **Incident responders** need the ability to reconstruct the exact sequence of events that led to a failure.
+Every agent action -- approved, rejected, or autonomous -- must produce an immutable audit record. [OWASP's schema](https://cheatsheetseries.owasp.org/cheatsheets/AI_Agent_Security_Cheat_Sheet.html) captures event type, severity, agent/session/user identifiers, timestamps, tool names and sanitized parameters, with passwords, keys and tokens redacted; [Reco.ai](https://www.reco.ai/hub/guardrails-for-ai-agents) adds that decision outcomes must link back to the prompts or datasets that produced them, with tamper-evident logs and defined retention. The trail serves three audiences: operators, who need to see what the agent is doing and why; compliance teams, who need evidence that policies were followed and approvals obtained; and incident responders, who need to reconstruct the sequence of events that led to a failure.
 
 ```python
 # Audit event schema
@@ -669,60 +654,59 @@ class AgentAuditEvent:
 
 ---
 
+## Evaluation: Real-World Systems
+
+Approval tooling has converged on one shape -- a policy that decides what needs approval, a queue that presents the decision, and a log that records it -- and the differentiators are where the policy lives and whether the decision reaches the right person.
+
+| System | Mechanism | What to note |
+|---|---|---|
+| [LangGraph `interrupt()`](https://docs.langchain.com/oss/python/langgraph/interrupts) | Graph-level interrupt with checkpointed state | The reference pause-and-resume: state is persisted, so a pause can last days |
+| [HumanLayer](https://humanlayer.dev/) | Approval gates for agent tool calls, plus a shared workspace for agent sessions | The approval arrives where the human already is, not in a new console |
+| [Permit.io](https://www.permit.io/blog/human-in-the-loop-for-ai-agents-best-practices-frameworks-use-cases-and-demo) | Policy engine for approval routing | Approval authority as declarative, versioned policy rather than application code |
+| [Temporal](https://temporal.io/) | Durable execution with signals | The pause is a durable workflow state; timeout and escalation are workflow primitives |
+| [Claude Code permission modes](https://www.anthropic.com/research/measuring-agent-autonomy) | Per-tool-call prompts with standing allow-lists | Measured practice: new users auto-approve about 20% of sessions, experienced users over 40%, and experienced users interrupt more often (~9% vs ~5%) |
+
+Two measured facts should set how many approvals you design for. The first is an operational warning sign: if approvers are approving more than 95% of requests in under 10 seconds, you have too many low-value gates ([Cordum](https://cordum.io/blog/human-in-the-loop-ai-patterns)). The second is a limit on the human, not on the tooling. Vigilance research has shown for decades that sustained detection performance declines measurably within the first 15 to 30 minutes of a monitoring task, and that the decline is steeper when the target is rare -- which is the shape of an approval queue where most items are fine. Design a queue a person can still read carefully at item 40, because the item that matters will not be item 3.
+
 ## Recommendations
 
 ### Short-Term: Easy Wins (Days)
 
-1. **Classify every agent action by risk level.** Use the OWASP four-tier model (low/medium/high/critical). Map each risk level to a human involvement level (1-4). This takes hours and immediately identifies which actions need more oversight and which have too much.
+1. **Classify every agent action by risk level.** Use the four-tier model (low/medium/high/critical) and map each level to a human involvement level. This takes hours and immediately shows which actions have too much oversight and which have too little.
 
-2. **Add context to approval requests.** Wherever your system pauses for human approval, ensure the request includes: what the agent wants to do, why it was escalated, key context, and a recommended action. This transforms rubber-stamping into genuine decision-making.
+2. **Add context to approval requests.** Every request should carry what the agent wants to do, why it was escalated, the three to five facts needed to evaluate it, and a recommended action. This is what turns rubber-stamping into decision-making.
 
-3. **Implement explicit timeout policies.** For every approval gate, define what happens when the human does not respond. Default to "deny" for critical actions, "escalate" for high/medium. This eliminates indefinite waits and accidental auto-approvals.
+3. **Implement explicit timeout policies.** For every gate, define what happens when nobody responds, and default to deny for critical actions and escalate for high and medium.
 
 ### Medium-Term: Structural Changes (Weeks)
 
-4. **Build role-based approval routing.** Map action categories to approver roles. Use a policy engine rather than hardcoded routing. This ensures decisions are made by people with relevant expertise and distributes the approval load.
+4. **Build role-based approval routing** from action category to approver role, held in a policy engine rather than hardcoded, so decisions reach relevant expertise and the approval load is spread.
 
-5. **Implement the tiered evaluation pipeline.** Automated checks handle the bulk, LLM-as-judge handles quality scoring, and human reviewers handle edge cases and calibration. This creates the feedback loop that continuously improves the system.
+5. **Implement the tiered evaluation pipeline** -- automated checks for the bulk, LLM-as-judge for quality scoring, human reviewers for edge cases and calibration -- so review volume falls over time without review disappearing.
 
-6. **Add progressive autonomy metrics.** Track accuracy, human agreement rate, and incident-free days per action category. Autonomy expansion requires meeting thresholds; any significant failure triggers immediate retraction.
+6. **Add progressive autonomy metrics** per action category: accuracy, human agreement rate, incident-free days. Expansion requires meeting thresholds; any significant failure retracts immediately.
 
 ### Long-Term: Architectural Shifts (Months)
 
-7. **Separate the autonomy policy from the agent code.** The rules about what requires approval, who approves it, and what the timeout behavior is should live in a declarative policy engine -- not in application code. This makes autonomy boundaries auditable, versionable, and modifiable without code changes.
+7. **Separate the autonomy policy from the agent code.** What needs approval, who approves it, and what happens on timeout belong in a declarative, versioned policy engine, not in application logic.
 
-8. **Build comprehensive audit infrastructure.** Immutable, tamper-evident logs with defined retention policies. Every agent action links back to the prompt, the context, the decision, and the outcome. This is not optional for compliance-sensitive domains.
+8. **Build audit infrastructure that can answer questions later:** immutable, tamper-evident logs, defined retention, and every action linked to its prompt, context, decision and outcome.
 
-9. **Implement active learning for human evaluation.** Route the most informative outputs to human reviewers -- uncertainty samples, diversity samples, and disagreement cases. Human labels feed back into the automated evaluation pipeline, continuously improving its accuracy and reducing the volume that requires human review.
+9. **Implement active learning for human evaluation.** Route uncertainty samples, diversity samples and cross-judge disagreement to humans, and feed the labels back into automated scoring.
 
 ---
+
+## Field Notes from an Operating Estate
+
+- **July 2026 -- the queue was capped at ten, and triage questions were forbidden.** An operator running a dozen agent harnesses consolidated every pending human decision onto one surface and set a hard ceiling of ten items, selected by the system and never by him. His stated reason was measured rather than stylistic: a longer list meant he could not hold several open decisions at once, and a triage question routed to him was "the flood readmitted through the side door". The transferable consequence is a design duty -- the system must rank and discard, because a human-facing queue that grows without bound is a queue that stops being read.
+
+- **July 2026 -- a probe paged the human four times a day about a one-command fix.** A monitoring probe was sending the same notification repeatedly, for days, about a failure whose correct response was a single command any agent could have run. Nothing broke because of the pages; what broke was the channel's credibility. The rule adopted from that measurement is Principle 6 in its abstract form: mechanical findings are executed by whoever finds them, with an audit trail, and never routed to a human. A channel that has been wrong four times a day is a channel that will be ignored on the day it is right.
 
 ## The Hard Truth
 
-Most teams implement human-in-the-loop backwards. They start with full autonomy because it is easier to build, then add oversight after something goes wrong. By that point, they have already established user expectations for speed, built workflows around autonomous operation, and created organizational pressure against "slowing things down." Adding oversight retroactively is fighting against the system's momentum.
+Most teams implement human-in-the-loop backwards. They start with full autonomy because it is easier to build, then add oversight after something goes wrong. By that point user expectations for speed are set, workflows assume autonomous operation, and organizational pressure runs against slowing anything down. Adding oversight retroactively means fighting the system's momentum.
 
-The teams that get this right start with humans approving everything -- and they accept that this is slow, expensive, and annoying. They accept it because they understand that the approval data is the training data. Every human decision generates a labeled example: this action was correct, this one was not, this one needed modification. Without this data, progressive autonomy is just hope -- "the system seems fine, let's remove the guardrails."
-
-The uncomfortable truth is that human-in-the-loop is not a phase you pass through on the way to full autonomy. It is a permanent architectural feature. The question is never "do we need human oversight?" The question is "which specific actions can we move from Level 2 to Level 3 this quarter, based on the data?" Even the most mature AI systems in production -- content moderation at scale, autonomous vehicle decision-making, medical diagnosis support -- maintain human oversight on their highest-consequence decisions. The boundary moves, but it never disappears.
-
-The single biggest mistake is treating HITL as a tax on automation instead of as the mechanism that makes automation trustworthy. Every approval is a data point. Every human correction is a training signal. Every escalation is evidence about where the system's judgment boundary lies. If you are not capturing and learning from these signals, your human-in-the-loop system is just a speed bump -- it slows the system down without making it better.
-
----
-
-## Summary Checklist
-
-| Question | Good Answer | Bad Answer |
-|---|---|---|
-| Do you classify actions by risk before deciding oversight level? | Yes -- four-tier risk classification drives HITL level | No -- same approval flow for all actions |
-| Can the approver make a genuine decision from the approval request? | Yes -- structured decision package with context | No -- generic "approve this action?" prompt |
-| Are approval requests routed to people with relevant expertise? | Yes -- role-based routing via policy engine | No -- all approvals go to one person or a generic queue |
-| Do approval gates have explicit timeout behavior? | Yes -- deny or escalate on timeout, per risk level | No -- agent waits indefinitely or auto-approves |
-| Is autonomy expansion driven by metrics? | Yes -- accuracy, agreement rate, incident-free days | No -- "it seems to be working, remove the gates" |
-| Does autonomy retract immediately on significant failure? | Yes -- automatic retraction to previous level | No -- failures are investigated but autonomy unchanged |
-| Are human decisions captured as training data? | Yes -- every approval/rejection feeds the eval pipeline | No -- decisions are logged but not used for improvement |
-| Does the system have audit trails for compliance? | Yes -- immutable logs with agent, approver, action, outcome | No -- standard application logs only |
-| Is human evaluation calibrated? | Yes -- anchor sets, inter-annotator agreement, disagreement resolution | No -- individual reviewers rate independently with no calibration |
-| Does the escalation trigger design prevent approval fatigue? | Yes -- only genuinely uncertain or high-risk actions reach humans | No -- humans approve 95%+ of requests in under 10 seconds |
+The teams that get this right start with humans approving everything, and they accept that it is slow, expensive and annoying -- because the approval data is the training data. Every human decision is a labeled example: correct, incorrect, or needed modification. Without that data, progressive autonomy is hope rather than evidence. So human-in-the-loop is not a phase you pass through on the way to full autonomy; it is a permanent architectural feature. The question is never "do we need oversight?" but "which specific actions can move from Level 2 to Level 3 this quarter, based on the data?" The boundary moves; it never disappears.
 
 ---
 
@@ -753,3 +737,7 @@ The single biggest mistake is treating HITL as a tax on automation instead of as
 - [AI-Native Solution Patterns](ai-native-solution-patterns.md) -- Build stage 4 of the Autonomous Agent pattern explicitly requires human checkpoints for high-consequence actions; the complexity escalation ladder where each pattern level demands more oversight infrastructure.
 - [Evaluation-Driven Development](evaluation-driven-development.md) -- The measurement infrastructure that human evaluation labels feed into; the eval flywheel where human labels improve automated scoring.
 - [Security and Safety in LLM Applications](security-and-safety.md) -- The threat model that makes human oversight necessary; prompt injection as the fundamental reason why LLM self-governance is insufficient.
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: added Principle 6 (ask only what cannot be derived), a comparison of real approval platforms with the published approval-fatigue and vigilance limits, and field notes from an operating estate. To stay inside the document's length bound, the failure taxonomy and recommendations were tightened, the summary checklist was removed, and the human-rater calibration and active-learning detail was condensed into the tiered-evaluation paragraph -- that material is covered in full by [Evaluation-Driven Development](evaluation-driven-development.md).*

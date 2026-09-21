@@ -1,19 +1,28 @@
 # Memory and State Management: Why Agents Forget and How to Make Them Remember
 
+**Thesis:** The context window is the only thing a model can see and it dies with the session, so memory is an architectural decision -- what must survive the session, and how it gets back into the window.
+
+**Prerequisites:** [Context Engineering](context-engineering.md) (context budgeting, conversation history strategies, compaction), [RAG: From Concept to Production](rag-from-concept-to-production.md) (vector stores, retrieval pipelines), and [Tool Design for LLM Agents](tool-design-for-llm-agents.md) (tool definitions, agent-tool interfaces).
+
+**Reading time:** 22 minutes
+
+---
+
 Every LLM interaction begins from nothing. The model has no recollection of previous conversations, no awareness of lessons learned, no sense of what it tried yesterday and whether it worked. Without memory, an agent that successfully debugged a complex issue at 2 PM will approach the identical issue at 3 PM as if encountering it for the first time. Memory is what transforms a stateless function call into something that resembles an intelligent collaborator -- and the gap between "stateless" and "stateful" is where most agentic systems either succeed or silently degrade.
-
-The tension is this: **the context window is the only thing the model can see, but the context window is ephemeral.** It fills up, it gets truncated, and when the session ends, it vanishes. Every memory system is fundamentally an answer to one question: *what information should survive the death of the current context window, and how does it get back in when needed?* This is where memory meets [context engineering](context-engineering.md) -- context engineering decides what goes into the window right now; memory engineering decides what persists *between* windows.
-
-**Prerequisites:** [Context Engineering](context-engineering.md) (context budgeting, conversation history strategies, compaction), [RAG: From Concept to Production](rag-from-concept-to-production.md) (vector stores, retrieval pipelines), and [Tool Design](tool-design-for-llm-agents.md) (tool definitions, agent-tool interfaces). This document builds directly on all three.
 
 | What teams assume | What actually happens |
 |---|---|
 | "The context window is the agent's memory" | The context window is working memory -- it fills up and degrades ([Anthropic](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)) |
-| "Longer context windows solve memory" | Attention degrades with volume; 200K tokens does not mean 200K tokens of useful recall |
-| "I'll store everything and retrieve what's needed" | Retrieval without relevance filtering actively degrades output quality |
-| "Memory is a feature to add later" | Memory is an architectural decision -- retrofitting it changes your entire state model |
+| "Longer context windows solve memory" | Quality degrades as context grows even past a million tokens; a large window is not a large amount of usable recall ([Chroma](https://research.trychroma.com/context-rot)) |
+| "I'll store everything and retrieve what's needed" | Retrieval without relevance filtering actively degrades output quality ([MongoDB](https://www.mongodb.com/company/blog/technical/why-multi-agent-systems-need-memory-engineering)) |
+| "Memory is a feature to add later" | Memory is an architectural decision -- retrofitting it changes your entire state model ([Anthropic](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)) |
 | "Summarization is memory" | Summarization compresses; memory formation selectively extracts facts, preferences, and patterns ([mem0](https://arxiv.org/abs/2504.19413)) |
 | "More memory makes agents smarter" | Stale or irrelevant memories make agents confidently wrong |
+| "A million-token window means I can skip memory" | A long-context retrieval score does not show that a system handles continuity across sessions ([mem0](https://mem0.ai/blog/ai-memory-benchmarks-in-2026)) |
+
+## The Core Tension
+
+The tension is this: **the context window is the only thing the model can see, but the context window is ephemeral.** It fills up, it gets truncated, and when the session ends, it vanishes. Every memory system is fundamentally an answer to one question: *what information should survive the death of the current context window, and how does it get back in when needed?* This is where memory meets [context engineering](context-engineering.md) -- context engineering decides what goes into the window right now; memory engineering decides what persists *between* windows.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#2d3748', 'primaryTextColor': '#e2e8f0', 'primaryBorderColor': '#4a5568', 'lineColor': '#a0aec0', 'secondaryColor': '#4a5568', 'tertiaryColor': '#1a202c', 'edgeLabelBackground': '#2d3748', 'clusterBkg': '#2d3748', 'clusterBorder': '#4a5568'}}}%%
@@ -154,7 +163,7 @@ graph LR
 
 ---
 
-## Principles for Effective Memory Systems
+## Design Principles
 
 ### Principle 1: Separate Memory Formation from Summarization
 
@@ -539,6 +548,29 @@ This system handles the core operations: store with automatic supersession detec
 
 ---
 
+## Evaluation: Real-World Systems
+
+The memory layer is the part of an agent stack most likely to be chosen from a vendor benchmark and least likely to survive contact with production. The 2026 benchmark set is [LoCoMo](https://arxiv.org/abs/2402.17753) (multi-session dialogue, roughly 16K-26K tokens per conversation), [LongMemEval](https://arxiv.org/abs/2410.10813) (about 115K tokens of chat history per question) and [BEAM](https://mem0.ai/blog/ai-memory-benchmarks-in-2026) (100K to 10M tokens). They measure different things, so a single score proves little. Treat any published number as a claim about one harness until you reproduce it on your own traffic.
+
+| System | Architecture | Published result | What to note |
+|---|---|---|---|
+| Full-context baseline | Entire history in the prompt | ~73 on LoCoMo at ~26,000 tokens per query and 17.1 s p95 latency | The simplest thing to build is not far behind on accuracy, but it costs roughly 14x the tokens of a retrieval system |
+| [mem0](https://mem0.ai/blog/state-of-ai-agent-memory-2026) | Extraction pipeline over vector, graph and key-value stores | 92.5 LoCoMo / 94.4 LongMemEval at ~6,900 tokens per query, on the vendor's own harness | The same published figure fell to 73.8 under an independent harness. Read the harness, not the number |
+| [Zep](https://particula.tech/blog/agent-memory-frameworks-tested-mem0-zep-letta-cognee-2026) | Temporal knowledge graph with fact-validity windows | 63.8 LongMemEval against mem0's 49.0 on the same model | The whole gap is temporal retrieval -- the capability most demos never test |
+| [Memora](https://github.com/microsoft/Memora) (Microsoft Research, June 2026) | Harmonic memory representation | 86.3 LoCoMo / 87.4 LongMemEval with up to 98% fewer tokens than a full-history dump | Published as a research artifact with code, which is what makes it reproducible |
+| [LangGraph](https://docs.langchain.com/oss/python/langgraph/memory) | Thread-scoped checkpointers plus namespaced cross-session stores | No benchmark claim | Chosen for its operational model: short-term and long-term memory as two documented tiers |
+| A progress file plus version control | Plain files and commits | No benchmark claim | Perfect precision and recall on the one thing it stores -- the agent's own task state |
+
+Two honest caveats belong beside that table. First, [published memory scores are not reliably reproducible](https://ai2.work/blog/agent-memory-benchmarks-rise-as-context-windows-hit-their-limit): independent harnesses have reported materially lower results than vendor harnesses for the same system, mostly through differences in how answers are judged rather than how they are retrieved. Second, a memory benchmark measures recall, not staleness -- and the failure that hurts in production is a confidently recalled fact that stopped being true.
+
+## Field Notes from an Operating Estate
+
+- **August 2026 -- an always-injected memory set hit a hard ceiling.** An estate running a dozen agent harnesses kept a small set of durable facts injected into every session. When a new fact was added, a gate that measures that always-injected set refused it: the set had reached 2,984 tokens of a 3,000-token budget. The useful response was not a larger budget but a change of location -- the fact moved into an on-demand file that a session reads only when the topic comes up. Always-injected memory is a tax on every turn; on-demand memory is a tax on one lookup.
+
+- **July 2026 -- a rule that lived in one agent's private memory was a divergent copy, not a memory.** A writing rule existed only inside one harness's local memory store. A second harness never saw it and broke the rule repeatedly, and the rule had to be recovered into the durable record that every harness reads. The generalization is worth stating plainly: if a fact matters to more than one actor, an actor-local memory store is a fork, not a memory.
+
+- **August 2026 -- the next step must be a query, not a reconstruction.** An effort too large for one session was handed to sessions as a written route. Where a session re-derived the route from the code and the tracker instead of querying it, two sessions produced conflicting decompositions of the same work, and each was internally correct. The estate's rule became: the takeable set is computed by the tracker and read without opening a single unit of the route.
+
 ## Recommendations
 
 **Short-term (immediate wins):**
@@ -617,6 +649,17 @@ The uncomfortable truth about agent memory is that **forgetting is harder than r
 
 - [Redis, "AI Agent Memory: Types, Architecture & Implementation"](https://redis.io/blog/ai-agent-memory-stateful-systems/) -- Implementation guide covering four-stage memory architecture, Redis data structure mappings, and vector index tradeoffs (HNSW vs. IVF vs. FLAT).
 
+### 2026 Memory Benchmarks and Systems
+
+- [LoCoMo: Evaluating Very Long-Term Conversational Memory of LLM Agents](https://arxiv.org/abs/2402.17753) -- The multi-session dialogue benchmark, still the most widely quoted memory score in 2026 despite measuring at most a fraction of what continuity requires.
+- [LongMemEval: Benchmarking Chat Assistants on Long-Term Interactive Memory](https://arxiv.org/abs/2410.10813) -- The cross-session benchmark that has become the de facto stress test for the category; its temporal-recall subset is where systems separate.
+- [mem0, "State of AI Agent Memory 2026"](https://mem0.ai/blog/state-of-ai-agent-memory-2026) -- Vendor-published benchmark table with tokens per query, useful mainly for the token-cost column, which is the part least dependent on judging rules.
+- [mem0, "AI Memory Benchmarks 2026: LoCoMo, LongMemEval and BEAM"](https://mem0.ai/blog/ai-memory-benchmarks-in-2026) -- Explains the framing that stuck in 2026: long context solves capacity, memory solves continuity across sessions.
+- [Agent Memory Benchmarks Rise as Context Windows Hit Their Limit](https://ai2.work/blog/agent-memory-benchmarks-rise-as-context-windows-hit-their-limit) -- Documents the reproducibility problem: several published memory scores fell materially under independent harnesses.
+- [Microsoft Research, Memora: A Harmonic Memory Representation](https://github.com/microsoft/Memora) -- ICML 2026 memory representation reporting up to 98% fewer tokens than a full-history dump with published code.
+- [Chroma, "Context Rot: How Increasing Input Tokens Impacts LLM Performance"](https://research.trychroma.com/context-rot) -- The measured basis for treating a large context window as capacity rather than as usable recall.
+- [Partícula, "Mem0 vs Zep vs Letta vs Cognee"](https://particula.tech/blog/agent-memory-frameworks-tested-mem0-zep-letta-cognee-2026) -- Framework comparison that isolates the temporal-retrieval gap between a knowledge-graph memory and an extraction-and-vector memory.
+
 ### Related Documents in This Series
 
 - [Context Engineering](context-engineering.md) -- Conversation history management strategies (Levels 0-4), token budgeting, compaction, sub-agent context isolation. Start here if you have not read it.
@@ -624,3 +667,7 @@ The uncomfortable truth about agent memory is that **forgetting is harder than r
 - [Tool Design for LLM Agents](tool-design-for-llm-agents.md) -- "Make invalid states unrepresentable" applies directly to memory schema design.
 - [AI-Native Solution Patterns](ai-native-solution-patterns.md) -- Pattern 6 (Autonomous Agent) build stage includes state management in the observe-think-act cycle.
 - [Quality Gates in Agentic Systems](quality-gates-in-agentic-systems.md) -- Level 2 observable state for checkpoint verification patterns.
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: added the 2026 memory benchmark set (LoCoMo, LongMemEval, BEAM) with its reproducibility caveat, replaced the unsourced context-window claims with measured sources, and added field notes from an operating estate.*
