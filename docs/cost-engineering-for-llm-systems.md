@@ -1,30 +1,52 @@
 # Cost Engineering for LLM Systems: Why Your AI Budget Is a Lie and How to Fix It
 
-Every team building with LLMs eventually discovers the same uncomfortable truth: the API call that costs $0.002 in development costs $2.00 in production -- not because prices changed, but because nobody modeled how costs compound across pipelines, retries, agent loops, and scale. Cost engineering is not optimization. It is the discipline of making LLM systems economically viable before they bankrupt you.
+**Thesis:** LLM cost is an architectural property, not a pricing problem -- the bill is set by how many times your system calls a model, not by what a token costs.
+
+**Prerequisites:** [LLM Fundamentals for Practitioners](llm-fundamentals-for-practitioners.md) (token mechanics, model tiers), [AI-Native Solution Patterns](ai-native-solution-patterns.md) (the router pattern), [Observability and Monitoring](observability-and-monitoring.md) (the telemetry that makes spend attributable).
+
+**Reading time:** 21 minutes
 
 ---
 
-## The Problem: Output Tokens Are the Hidden Tax
+Every team building with LLMs eventually discovers the same uncomfortable truth: the API call that costs $0.002 in development costs $2.00 in production -- not because prices changed, but because nobody modeled how costs compound across pipelines, retries, agent loops, and scale. Cost engineering is not optimization. It is the discipline of making LLM systems economically viable before they bankrupt you.
+
+| What teams assume | What actually happens |
+|---|---|
+| "Prices keep falling, so our bill will fall too" | Per-token prices fell roughly 100x in 2.5 years while agentic workloads consume 5-30x more tokens per task than a chat exchange ([Gartner](https://www.gartner.com/en/newsroom/press-releases/2026-03-25-gartner-predicts-that-by-2030-performing-inference-on-an-llm-with-1-trillion-parameters-will-cost-genai-providers-over-90-percent-less-than-in-2025)) |
+| "One strong model for everything is simpler" | Routing a single workload across tiers cuts spend 50-85% with no measured quality loss ([RouteLLM](https://arxiv.org/abs/2406.18665)) |
+| "A per-token price cap bounds my bill" | A price cap bounds the *rate*, not dollars per call; without an output-token bound a call can still be expensive ([OpenRouter](https://openrouter.ai/docs/features/model-routing)) |
+| "Cached input is a 50% discount" | The newest flagship tiers read cached input at 10% of the input rate -- 90% off, not 50% ([BenchLM](https://benchlm.ai/llm-pricing)) |
+| "Batch APIs are for experiments" | Batch is a straight 50% discount for a 24-hour completion window, available on the highest-volume workloads |
+| "If a budget cap is set, we cannot overspend" | A cap that reads a counter which is not monotonic silently stops braking (see Failure 7) |
+| "Cost per request is the metric" | Cost per *successful task* is the metric; a cheap call that fails and retries is the expensive one |
+
+## The Core Tension
 
 LLM pricing looks simple on a provider's pricing page. It is not. The core tension in LLM cost engineering is that **the tokens you pay the most for are the ones you control the least**.
 
-Every major provider prices input and output tokens differently, with output tokens costing 3-5x more than input tokens. This asymmetry exists because output tokens require sequential autoregressive generation (each token depends on the previous one), while input tokens can be processed in parallel. The economics of silicon enforce this ratio.
+Every major provider prices input and output tokens differently, and on the September 2026 price lists output tokens cost 5-6x more than input tokens on most current models. This asymmetry exists because output tokens require sequential autoregressive generation (each token depends on the previous one), while input tokens can be processed in parallel. The economics of silicon enforce this ratio.
 
-| Provider | Model | Input / MTok | Output / MTok | Output Multiplier |
-|---|---|---|---|---|
-| OpenAI | GPT-4.1 | $2.00 | $8.00 | 4.0x |
-| OpenAI | GPT-5 | $1.25 | $10.00 | 8.0x |
-| OpenAI | o3 | $2.00 | $8.00 | 4.0x |
-| Anthropic | Claude Sonnet 4.6 | $3.00 | $15.00 | 5.0x |
-| Anthropic | Claude Opus 4.6 | $5.00 | $25.00 | 5.0x |
-| Google | Gemini 2.5 Pro | $1.25 | $10.00 | 8.0x |
-| Google | Gemini 2.5 Flash | $0.30 | $2.50 | 8.3x |
-| OpenAI | GPT-4.1 Nano | $0.10 | $0.40 | 4.0x |
-| Google | Gemini 2.5 Flash-Lite | $0.10 | $0.40 | 4.0x |
+| Provider | Model | Input / MTok | Output / MTok | Cached Input / MTok | Output Multiplier |
+|---|---|---|---|---|---|
+| OpenAI | GPT-6 Astra | $10.00 | $50.00 | $1.00 | 5.0x |
+| OpenAI | GPT-5.6 Sol | $4.00 | $20.00 | $0.40 | 5.0x |
+| OpenAI | GPT-5.6 Terra | $2.00 | $12.00 | $0.20 | 6.0x |
+| OpenAI | GPT-5.6 Luna | $0.20 | $1.20 | $0.02 | 6.0x |
+| Anthropic | Claude Fable 5.1 | $10.00 | $50.00 | $0.25 | 5.0x |
+| Anthropic | Claude Opus 5 | $5.00 | $25.00 | $0.50 | 5.0x |
+| Anthropic | Claude Sonnet 5 | $2.00 | $10.00 | $0.20 | 5.0x |
+| Anthropic | Claude Haiku 4.5 | $1.00 | $5.00 | $0.10 | 5.0x |
+| Google | Gemini 3.1 Pro | $2.00 | $12.00 | $0.20 | 6.0x |
+| Google | Gemini 3.8 Flash | $0.75 | $3.75 | $0.07 | 5.0x |
+| Google | Gemini 3.5 Flash-Lite | $0.30 | $2.50 | $0.03 | 8.3x |
+| DeepSeek | DeepSeek V4 Pro | $0.43 | $0.87 | $0.00 | 2.0x |
+| Z.ai | GLM-5.2 | $1.40 | $4.40 | -- | 3.1x |
 
-*Sources: [OpenAI pricing](https://devtk.ai/en/blog/openai-api-pricing-guide-2026/), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Google AI pricing](https://ai.google.dev/pricing)*
+*Sources: [BenchLM pricing comparison, verified 18 September 2026](https://benchlm.ai/llm-pricing), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [OpenAI API pricing](https://openai.com/api/pricing/), [Google AI pricing](https://ai.google.dev/pricing)*
 
-The multiplier matters because you cannot predict output length with precision. You control your prompt (input tokens). You do not control the model's response length. A request that should generate 200 tokens of JSON might generate 2,000 tokens of explanation because the model misunderstood the instruction. That 10x output overshoot is a 10x cost overshoot on your most expensive token type.
+Prices on this list move every quarter, and a stale table is worse than no table. Two structural facts outlast any individual number. The *ratio* between the cheapest and the most expensive tier is roughly 50x on input and 40x on output, and it has been stable while absolute prices fall. And the cheapest model is not necessarily the cheapest completed task: a low input rate loses when the model writes long answers, misses the cache, or needs more retries to pass the same test ([BenchLM](https://benchlm.ai/llm-pricing)).
+
+The multiplier matters because you cannot predict output length. You control your prompt; you do not control the response length. A request that should return 200 tokens of JSON can return 2,000 tokens of explanation, and that 10x overshoot is a 10x overshoot on your most expensive token type.
 
 This asymmetry compounds across architectural patterns. A single LLM call has a predictable cost envelope. A pipeline of five calls multiplies that envelope. An agent with tool-calling loops makes the envelope unbounded.
 
@@ -43,7 +65,7 @@ The difference between a single augmented call and an autonomous agent is not 2x
 
 ---
 
-## Failure Taxonomy: Six Ways LLM Costs Spiral
+## Failure Taxonomy
 
 Cost failures in LLM systems are not random. They follow predictable patterns, each with distinct root causes and signatures.
 
@@ -61,11 +83,11 @@ An agent enters an infinite or near-infinite loop, burning tokens without produc
 
 Using a frontier model for tasks that a budget model handles equally well. This is the most common cost failure and the easiest to fix, yet most teams never address it.
 
-**What it looks like:** Every request hits Claude Opus or GPT-4.1 regardless of complexity. Your cost-per-request is consistent but uniformly high.
+**What it looks like:** Every request hits the most expensive model regardless of complexity. Your cost-per-request is consistent but uniformly high.
 
-**Why it happens:** Teams pick one model during development and never revisit. The model that works for the hardest 5% of inputs is used for the easiest 95%. A simple classification task that Gemini Flash-Lite handles at $0.10/MTok input is sent to Opus at $5.00/MTok -- a 50x cost premium for equivalent accuracy.
+**Why it happens:** Teams pick one model during development and never revisit. The model that works for the hardest 5% of inputs is used for the easiest 95%. A simple classification task that a $0.20/MTok model handles is sent to a $10/MTok model -- a 50x cost premium for equivalent accuracy.
 
-**Concrete example:** A customer service system routes all queries to Claude Sonnet 4.6. Evaluation shows that 70% of queries are simple FAQ lookups where Haiku 4.5 produces identical quality. Switching those 70% to Haiku saves **$12,000/month** on a 50K query/month workload ([Moltbook-AI](https://moltbook-ai.com/posts/ai-agent-cost-optimization-2026)). The team was paying 3x what the workload required.
+**Concrete example:** A customer service system routes all queries to Claude Sonnet 5. Evaluation shows that 70% of queries are simple FAQ lookups where Haiku 4.5 produces identical quality. Switching those 70% to Haiku saves **$12,000/month** on a 50K query/month workload ([Moltbook-AI](https://moltbook-ai.com/posts/ai-agent-cost-optimization-2026)). The team was paying 3x what the workload required.
 
 ### Failure 3: The Cache Miss
 
@@ -79,11 +101,11 @@ Sending identical or semantically equivalent prompts to the API repeatedly, payi
 
 ### Failure 4: The Output Explosion
 
-Failing to constrain output token generation, allowing the model to produce verbose responses that cost 3-5x more per token than the input that triggered them.
+Failing to constrain output token generation, allowing the model to produce verbose responses that cost 5-6x more per token than the input that triggered them.
 
 **What it looks like:** Responses are longer than necessary. JSON outputs include explanatory text. Summaries are longer than the source material.
 
-**Why it happens:** Without `max_tokens` limits, clear formatting instructions, or structured output schemas, the model defaults to being helpful -- which means verbose. Each unnecessary output token costs 3-8x what an input token costs.
+**Why it happens:** Without `max_tokens` limits, clear formatting instructions, or structured output schemas, the model defaults to being helpful -- which means verbose. Each unnecessary output token costs 5-6x what an input token costs.
 
 **Concrete example:** A data extraction pipeline asks the model to extract five fields from a document. Without structured output constraints, the model returns the five fields plus a 500-word explanation of its reasoning. The explanation costs more than the useful output. Adding `"respond only with JSON, no explanation"` and setting `max_tokens: 200` cuts output tokens by 80%.
 
@@ -109,7 +131,21 @@ No cost attribution, no per-feature tracking, no per-user metering. Total spend 
 
 ---
 
-## Cost Maturity Spectrum: Five Levels
+### Failure 7: The Dead Brake
+
+A spending brake that reads a counter which is not monotonic goes silently negative and stops braking. This is the failure that leaves every other control looking present while doing nothing.
+
+**What it looks like:** The budget check is wired, the ceiling is configured, the alert thresholds are set -- and no run is ever stopped. The monthly total is higher than the cap can explain, and every individual component looks correct.
+
+**Why it happens:** Spend is measured by subtracting a start value from a current value. If the field being read is a *windowed* counter -- a rolling monthly total, a period-to-date figure, a balance that gets topped up -- it can fall during a run. The subtraction then yields a negative number from the first re-read, and a negative number never reaches a positive threshold. The brake is dead from the first check, whatever the run spends.
+
+**Concrete example:** A nightly batch job computed its in-run spend as `usage_monthly_now - usage_monthly_at_start` and stopped the run when that delta reached its allowance. On a measured run, the windowed counter fell by 149.89 during the job while the money actually spent -- read from the remaining-credit field on the *same* response payload -- was 0.109. The delta was negative, the stop condition could never fire, and the only remaining brake was the pre-run arithmetic, which decides once at the start. Two fields on one payload disagreed about which one carried the spend, and the consumer had picked the non-monotonic one.
+
+**The fix, and the general rule:** brake on a quantity that is monotonic within the accounting period -- a remaining balance that only falls, a cumulative counter that only rises -- and assert that monotonicity rather than assuming it. A pre-run decision is not an in-run brake: if the only check happens before the run, a run that overspends mid-flight is never stopped.
+
+---
+
+## The Cost Maturity Spectrum
 
 Organizations progress through predictable stages of cost engineering maturity. Each level addresses specific failure modes from the taxonomy above.
 
@@ -136,7 +172,7 @@ Most teams operate at Level 1 or 2. The jump from Level 2 to Level 3 delivers th
 
 ---
 
-## Principles: Seven Levers for LLM Cost Control
+## Design Principles
 
 ### Principle 1: Count Tokens Before You Send Them
 
@@ -149,13 +185,13 @@ For OpenAI models, use `tiktoken`:
 ```python
 import tiktoken
 
-def estimate_cost(prompt: str, model: str = "gpt-4.1") -> dict:
+def estimate_cost(prompt: str, model: str = "gpt-5.6-sol") -> dict:
     enc = tiktoken.encoding_for_model(model)
     input_tokens = len(enc.encode(prompt))
     # Estimate output as 2x input for conversational, 0.5x for extraction
     estimated_output = input_tokens * 2
 
-    prices = {"gpt-4.1": (2.00, 8.00), "gpt-4.1-nano": (0.10, 0.40)}
+    prices = {"gpt-5.6-sol": (4.00, 20.00), "gpt-5.6-luna": (0.20, 1.20)}
     input_price, output_price = prices[model]
 
     cost = (input_tokens * input_price + estimated_output * output_price) / 1_000_000
@@ -173,29 +209,32 @@ For Anthropic models, use their token counting API endpoint or `anthropic.count_
 
 | Tier | Models | Input / MTok | Output / MTok | Use For |
 |---|---|---|---|---|
-| Nano | GPT-4.1 Nano, Gemini Flash-Lite | $0.10 | $0.40 | Classification, extraction, simple Q&A |
-| Fast | Haiku 4.5, GPT-4o Mini, Gemini Flash | $0.15-$1.00 | $0.60-$5.00 | Moderate reasoning, summarization |
-| Standard | Sonnet 4.6, GPT-4.1, Gemini Pro | $2.00-$3.00 | $8.00-$15.00 | Complex reasoning, generation |
-| Frontier | Opus 4.6, GPT-5, o3 | $1.25-$5.00 | $8.00-$25.00 | Hardest tasks, multi-step reasoning |
+| Nano | GPT-5.6 Luna, Gemini 3.5 Flash-Lite | $0.20-$0.30 | $1.20-$2.50 | Classification, extraction, simple Q&A |
+| Fast | Claude Haiku 4.5, Gemini 3.8 Flash, GPT-5.4 mini | $0.75-$1.00 | $3.75-$5.00 | Moderate reasoning, summarization |
+| Standard | Claude Sonnet 5, GPT-5.6 Terra, Gemini 3.1 Pro | $2.00 | $10.00-$12.00 | Complex reasoning, generation |
+| Frontier | GPT-5.6 Sol, Claude Opus 5 | $4.00-$5.00 | $20.00-$25.00 | Hardest tasks, multi-step reasoning |
+| Above frontier | Claude Fable 5.1, GPT-6 Astra | $10.00 | $50.00 | Only where a measured quality gap justifies 2.5x the frontier rate |
 
 **How to apply:**
 
 ```python
 async def route_request(query: str) -> str:
     # Step 1: Classify complexity with cheapest model
-    complexity = await classify(query, model="gpt-4.1-nano")  # $0.10/MTok
+    complexity = await classify(query, model="gpt-5.6-luna")  # $0.20/MTok
 
     # Step 2: Route to appropriate tier
     model_map = {
-        "simple": "gpt-4.1-nano",      # FAQ, classification
+        "simple": "gpt-5.6-luna",        # FAQ, classification
         "moderate": "claude-haiku-4.5",  # Summarization, extraction
-        "complex": "claude-sonnet-4.6",  # Analysis, generation
-        "frontier": "claude-opus-4.6",   # Novel reasoning
+        "complex": "claude-sonnet-5",    # Analysis, generation
+        "frontier": "claude-opus-5",     # Novel reasoning
     }
     return await generate(query, model=model_map[complexity])
 ```
 
-A system processing 50,000 requests/month with 70% simple, 20% moderate, and 10% complex tasks costs approximately $12,000/month with a single frontier model. With routing, it costs approximately $3,200/month -- a 73% reduction ([RocketEdge](https://rocketedge.com/2026/03/15/your-ai-agent-bill-is-30x-higher-than-it-needs-to-be-the-6-tier-fix/)).
+Two refinements matter more than the routing table itself. Route on a **quality floor**, not on price: a cost-only router selects rate-limited free models and stalls under load, so rank by a quality score with the price cap as the guardrail underneath ([OpenRouter](https://openrouter.ai/docs/features/model-routing)). And check which direction an automatic router optimizes -- one that returns the *weakest* qualifying model is cost-first, not quality-first.
+
+A system processing 50,000 requests/month with 70% simple, 20% moderate, and 10% complex tasks costs approximately $12,000/month with a single frontier model. With routing, it costs approximately $3,200/month -- a 73% reduction ([RocketEdge](https://rocketedge.com/2026/03/15/your-ai-agent-bill-is-30x-higher-than-it-needs-to-be-the-6-tier-fix/)). Published routing results support the same order of magnitude: a learned router reached more than 85% cost reduction on MT-Bench while keeping 95% of a frontier model's quality, by sending only 14% of queries to the strong model ([RouteLLM, ICLR 2025](https://arxiv.org/abs/2406.18665)).
 
 ### Principle 3: Cache at Multiple Layers
 
@@ -211,10 +250,13 @@ A system processing 50,000 requests/month with 70% simple, 20% moderate, and 10%
 |---|---|---|---|---|
 | Anthropic (5-min) | 1.25x base input | 0.1x base input | 90% | 5 min (extends on access) |
 | Anthropic (1-hour) | 2.0x base input | 0.1x base input | 90% | 1 hour |
-| OpenAI | 1.0x (free) | 0.5x base input | 50% | 5-10 min |
-| Google | Varies by model | ~$0.01/MTok (Flash-Lite) | Up to 97% | Configurable |
+| OpenAI (current flagship tiers) | 1.0x (free, automatic above 1,024 tokens) | 0.1x base input | 90% | 5-10 min |
+| OpenAI (older models) | 1.0x (free) | 0.5x base input | 50% | 5-10 min |
+| Google | Varies by model | ~0.1x base input | ~90% | Configurable |
 
-*Source: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [Introl caching guide](https://introl.com/blog/prompt-caching-infrastructure-llm-cost-latency-reduction-guide-2025)*
+*Source: [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [BenchLM cached-input column, 18 September 2026](https://benchlm.ai/llm-pricing), [Introl caching guide](https://introl.com/blog/prompt-caching-infrastructure-llm-cost-latency-reduction-guide-2025)*
+
+The OpenAI row is the one teams get wrong: the discount is not uniform within one provider's catalogue. Read the cached-input column of the current price list, not the caching documentation, which lags the price change.
 
 **Break-even analysis for Anthropic prompt caching:** A 5-minute cache write costs 1.25x one request. Cache reads cost 0.1x. Break-even occurs after **just 1 cache read** within the TTL window: 1.25x (write) + 0.1x (read) = 1.35x total for 2 requests, versus 2.0x without caching. Every subsequent read within the window saves 0.9x.
 
@@ -303,7 +345,8 @@ class AgentBudget:
 | Tool | Role | Integration |
 |---|---|---|
 | [LiteLLM](https://github.com/BerriAI/litellm) | API gateway, unified proxy | Routes to 100+ providers, enforces per-team budgets |
-| [Langfuse](https://langfuse.com) | Observability and tracing | Cost breakdown by feature/team/model, trace visualization |
+| [OpenRouter](https://openrouter.ai/docs/features/model-routing) | Routing and per-call price ceiling | Quality-ranked routing with a hard `max_price` guardrail and per-key monthly spend limits |
+| [Langfuse](https://langfuse.com) | Observability and tracing | Cost breakdown by feature/team/model, trace visualization. Now developed inside ClickHouse, with the MIT core and self-hosting unchanged |
 | [Portkey](https://portkey.ai) | AI gateway | Built-in caching, budget hierarchy, webhook alerts |
 | [Helicone](https://helicone.ai) | Monitoring | One-line integration, prompt management, cost dashboards |
 
@@ -329,25 +372,34 @@ Monthly tokens:
   Input:  7,000 × 50,000 = 350M tokens
   Output: 650 × 50,000   = 32.5M tokens
 
-Cost at Sonnet 4.6 ($3/$15 per MTok):
-  Input:  350 × $3.00  = $1,050
-  Output: 32.5 × $15.00 = $487.50
-  Monthly total: $1,537.50
+Cost at Claude Sonnet 5 ($2/$10 per MTok):
+  Input:  350 × $2.00  = $700.00
+  Output: 32.5 × $10.00 = $325.00
+  Monthly total: $1,025.00
 
-Cost with routing (70% to Haiku at $1/$5):
+Cost with routing (70% to Haiku 4.5 at $1/$5):
   Simple (35K queries):  245M in × $1 + 22.75M out × $5  = $358.75
-  Complex (15K queries): 105M in × $3 + 9.75M out × $15  = $461.25
-  Monthly total: $820.00  (47% savings)
+  Complex (15K queries): 105M in × $2 + 9.75M out × $10  = $307.50
+  Monthly total: $666.25  (35% savings)
 
 Cost with routing + prompt caching (60% cache hit on RAG context):
-  Cache savings on 2,000 tokens × 30,000 hits × 90% discount
-  Additional monthly savings: ~$150
-  Monthly total: ~$670.00  (56% savings from baseline)
+  Cached tokens: 2,000 × 30,000 hits = 60M tokens read at 10% of $2.00
+  Additional monthly savings: ~$108
+  Monthly total: ~$558.00  (46% savings from baseline)
 ```
 
 ---
 
-## Cost Archetypes: Four Common Systems
+## Evaluation: Real-World Systems
+
+Four cost archetypes cover almost every LLM system in production. The tables below use September 2026 prices, recomputed from the same token volumes, so the *relative* savings are the part that transfers between price lists.
+
+| Archetype | Dominant cost driver | Typical stack | Unoptimized | Optimized | Savings |
+|---|---|---|---|---|---|
+| Chatbot | Context accumulation across turns | Claude Sonnet 5, sliding window, Haiku 4.5 for simple turns | ~$2,530/mo | ~$800/mo | 68% |
+| RAG pipeline | Repeated context injection | GPT-5.6 Terra, prompt caching, batch API for analytics | ~$1,700/mo | ~$740/mo | 57% |
+| Agentic workflow | Unbounded step count | Sonnet 5, step limits, router, context pruning | ~$10,000/mo | ~$3,300/mo | 67% |
+| Evaluation pipeline | High-volume, fully batch-eligible | Sonnet 5, batch API | ~$300/mo | ~$150/mo | 50% |
 
 ### Archetype 1: The Chatbot
 
@@ -355,16 +407,16 @@ Single-model, multi-turn conversation. Cost grows quadratically with conversatio
 
 | Parameter | Value |
 |---|---|
-| Model | Sonnet 4.6 ($3/$15) |
+| Model | Sonnet 5 ($2/$10) |
 | System prompt | 2,000 tokens |
 | Avg turns per session | 15 |
 | Avg user message | 100 tokens |
 | Avg response | 300 tokens |
 | Sessions per month | 10,000 |
 
-**Unoptimized cost:** Each turn resends full history. By turn 15, input reaches ~8,000 tokens per request. Total monthly: ~$3,800.
+**Unoptimized cost:** Each turn resends full history. By turn 15, input reaches ~8,000 tokens per request. Total monthly: ~$2,530.
 
-**Optimized cost (sliding window + Haiku for simple turns):** Monthly: ~$1,200. **Savings: 68%.**
+**Optimized cost (sliding window + Haiku for simple turns):** Monthly: ~$800. **Savings: 68%.**
 
 ### Archetype 2: The RAG Pipeline
 
@@ -372,15 +424,15 @@ Retrieval-augmented generation with fixed document context. Cost dominated by re
 
 | Parameter | Value |
 |---|---|
-| Model | GPT-4.1 ($2/$8) |
+| Model | GPT-5.6 Terra ($2/$12) |
 | Retrieved context | 4,000 tokens |
 | Query + system prompt | 1,500 tokens |
 | Response | 500 tokens |
 | Queries per month | 100,000 |
 
-**Unoptimized cost:** 5,500 input + 500 output per query. Monthly: $1,500.
+**Unoptimized cost:** 5,500 input + 500 output per query. Monthly: $1,700.
 
-**Optimized cost (prompt caching + batch for analytics queries):** Monthly: ~$650. **Savings: 57%.**
+**Optimized cost (prompt caching + batch for analytics queries):** Monthly: ~$740. **Savings: 57%.**
 
 ### Archetype 3: The Agentic Workflow
 
@@ -388,14 +440,16 @@ Multi-step agent with tool calling. Cost is unpredictable because step count var
 
 | Parameter | Value |
 |---|---|
-| Model | Sonnet 4.6 ($3/$15) |
+| Model | Sonnet 5 ($2/$10) |
 | Steps per task | 5-25 (avg 12) |
 | Tokens per step | 3,000 input + 500 output (growing with context) |
 | Tasks per month | 5,000 |
 
-**Unoptimized cost:** Average 12 steps, context grows each step. Monthly: ~$15,000. **Worst case (all tasks hit 25 steps):** ~$45,000.
+**Unoptimized cost:** Average 12 steps, context grows each step. Monthly: ~$10,000. **Worst case (all tasks hit 25 steps):** ~$30,000.
 
-**Optimized cost (step limits + router + context pruning):** Monthly: ~$5,000. **Savings: 67%. Risk reduction: 90% (worst case capped at $8,000).**
+**Optimized cost (step limits + router + context pruning):** Monthly: ~$3,300. **Savings: 67%. Risk reduction: 90% (worst case capped at ~$5,300).**
+
+This is where the published measurements are starkest: agentic workloads consume 5-30x more tokens per task than a chatbot exchange, and coding agents on a software-engineering benchmark used up to 1,000x the tokens of simple code chat, driven almost entirely by re-read input ([Spheron](https://www.spheron.network/blog/agentic-ai-inference-cost-2026)).
 
 ### Archetype 4: The Evaluation Pipeline
 
@@ -403,13 +457,13 @@ Batch evaluation of model outputs using LLM-as-judge. High volume, fully batch-e
 
 | Parameter | Value |
 |---|---|
-| Model | Sonnet 4.6 ($3/$15) |
+| Model | Sonnet 5 ($2/$10) |
 | Items to evaluate | 50,000/month |
 | Tokens per evaluation | 2,000 input + 200 output |
 
-**Unoptimized cost (real-time API):** Monthly: $450.
+**Unoptimized cost (real-time API):** Monthly: $300.
 
-**Optimized cost (batch API at 50% discount):** Monthly: $225. **Savings: 50%, zero effort.**
+**Optimized cost (batch API at 50% discount):** Monthly: $150. **Savings: 50%, zero effort.**
 
 ---
 
@@ -430,9 +484,11 @@ The instinct to self-host for cost savings is almost always premature. The true 
 
 | Compare Against | Break-Even Volume | Reality Check |
 |---|---|---|
-| Claude Sonnet 4.6 ($3/$15) | ~50M tokens/month | Achievable for high-volume systems |
-| GPT-4.1 Nano ($0.10/$0.40) | ~3.8B tokens/month | Nearly impossible on single GPU |
-| Gemini Flash-Lite ($0.10/$0.40) | ~3.8B tokens/month | Requires maximum 24/7 utilization |
+| Claude Sonnet 5 ($2/$10) | ~75M tokens/month | Achievable for high-volume systems |
+| GPT-5.6 Luna ($0.20/$1.20) | ~1.4B tokens/month | Nearly impossible on single GPU |
+| Gemini 3.5 Flash-Lite ($0.30/$2.50) | ~0.7B tokens/month | Requires maximum 24/7 utilization |
+
+*Break-even volumes recomputed at September 2026 prices against the same $3,240/month self-host total.*
 
 An [academic study of 54 deployment scenarios](https://arxiv.org/html/2509.18101v1) found that small models (24-32B parameters) break even in 0.3-3 months on consumer hardware (~$2,000), while large models (235B+) require 3.5-69+ months on $60K-$240K hardware. Against cost-leadership APIs, payoff horizons extend to 5-9 years.
 
@@ -459,6 +515,14 @@ quadrantChart
 **Use APIs when:** Volume is below 50M tokens/day, you need frontier-model quality, your team lacks GPU operations expertise, or traffic is variable/spiky.
 
 ---
+
+## Field Notes from an Operating Estate
+
+- **September 2026 -- the money brake was dead and every part of it looked correct.** An unattended nightly batch job had an in-run spend stop-condition: read the provider's usage figure, subtract the value recorded at run start, stop when the delta reached the night's allowance. It was wired, configured, and reported in every run summary. On the measured run, the windowed usage figure fell by 149.89 during the job while the money actually spent -- read from the remaining-credit field on the *same* API response -- was 0.109. The delta was therefore negative from the first re-read and could never reach the allowance. The brake had never fired, and the only working control was the pre-run arithmetic that decides once, at the start. Two fields on one payload disagreed about which one carried the spend. The fix was to brake on the remaining-credit field, which only falls, and to treat "is this counter monotonic inside the accounting period?" as a required review question for every budget check.
+
+- **July 2026 -- a per-token price cap did not bound the bill.** An operator set a hard per-token price ceiling on a routing layer, expecting it to bound spending. It bounds the *rate* per token, not dollars per call: a long-enough answer at an allowed rate is still an expensive call, and an output-token bound is required alongside the price cap. A second surprise followed: a cap set to a model's cheapest *listed* endpoint failed outright, because the router did not serve from that endpoint. The meter you read must be the endpoint that is actually served.
+
+- **July 2026 -- a cost-only router selected the free tier and stalled.** With a low price ceiling in place, $0/$0 models satisfy the cap by definition, and a price-sorted router preferred them. Under load the free models were rate-limited, so the routing layer stalled rather than spending. The fix was to route on a quality floor -- a minimum score -- with the price cap kept as the guardrail underneath, rather than sorting by price. Cost-first routing and quality-first routing produce the same bill on paper and very different systems in practice.
 
 ## Recommendations
 
@@ -487,6 +551,8 @@ quadrantChart
 
 The LLM cost problem is not a pricing problem. Prices have dropped approximately [100x over 2.5 years](https://simonwillison.net/tags/llm-pricing/) and will continue dropping. The problem is architectural.
 
+Falling prices are also a trap, and this is the 2026 version of the same mistake. Per-token prices keep falling while agentic workloads consume 5-30x more tokens per task than a chat exchange, and a study of coding agents on a software-engineering benchmark reported agents using up to 1,000x the tokens of simple code chat on the same benchmark, driven almost entirely by re-read input ([Gartner, March 2026](https://www.gartner.com/en/newsroom/press-releases/2026-03-25-gartner-predicts-that-by-2030-performing-inference-on-an-llm-with-1-trillion-parameters-will-cost-genai-providers-over-90-percent-less-than-in-2025), [Spheron](https://www.spheron.network/blog/agentic-ai-inference-cost-2026)). A 10x price cut and a 30x volume increase still raises the bill. Gartner's August 2026 forecast agrees from the other direction: inference cost per agentic workflow is expected to increase more than fivefold through 2028, and no economical one-size-fits-all model is on the horizon ([Gartner, August 2026](https://www.gartner.com/en/newsroom/press-releases/2026-08-17-gartner-predicts-ai-inference-costs-per-agentic-workflow-will-increase-more-than-fivefold-through-2028)).
+
 Teams that treat LLM calls like database queries -- fire and forget, optimize later -- will always be surprised by their bills. The cost of a single LLM call is trivial. The cost of a system that makes thousands of uncontrolled LLM calls is catastrophic. The difference between a $500/month system and a $50,000/month system is rarely the model or the provider. It is whether anyone modeled the cost before building, whether anyone set limits before deploying, and whether anyone monitored before the invoice arrived.
 
 The uncomfortable truth is that 96% of enterprises report AI costs exceeding estimates ([OneUptime](https://oneuptime.com/blog/post/2026-03-09-ai-agents-observability-crisis/view)). This is not because LLMs are expensive. It is because teams build first and budget never. A 30-minute cost estimation exercise before architecture design prevents more financial damage than any optimization applied after the fact.
@@ -505,9 +571,7 @@ The most expensive LLM system is the one nobody measured.
 | Are agent loops bounded by step and cost limits? | Yes, hard limits with circuit breakers | No, agents run until done |
 | Do you know cost per successful outcome? | Yes, tracked per feature | No, only aggregate spend |
 | Is batch API used for non-real-time work? | Yes, all eligible workloads | No, everything is real-time |
-| Do you have per-user and per-team spend limits? | Yes, with progressive alerts | No, one global budget |
 | Did you model costs before building? | Yes, cost worksheet in design review | No, we estimated after launch |
-| Can you attribute 90%+ of spend to specific features? | Yes, with per-request tagging | No, we see only total spend |
 | Do you have a kill switch for runaway sessions? | Yes, automatic circuit breaker | No, we rely on manual intervention |
 
 ---
@@ -549,7 +613,22 @@ The most expensive LLM system is the one nobody measured.
 - [arxiv 2509.18101: Cost-Benefit Analysis of On-Premise LLM Deployment](https://arxiv.org/html/2509.18101v1) -- Academic analysis of 54 deployment scenarios with break-even timelines by model size across three commercial pricing tiers
 - [Latent Space: Simon Willison -- Things We Learned About LLMs in 2024](https://www.latent.space/p/2024-simonw) -- Key insight: Gemini 1.5 Flash processes 68,000 photos for $1.68; DeepSeek v3 trained for $5.5M (1/10th expected)
 
+### September 2026 Pricing, Routing and Consumption
+
+- [BenchLM: LLM API Pricing Comparison](https://benchlm.ai/llm-pricing) -- Dated price table across 157 paid models and 28 providers, with a cached-input column; the primary source for the price table above (verified 18 September 2026)
+- [OpenAI API Pricing](https://openai.com/api/pricing/) -- Current model line-up, batch discount and cached-input rates
+- [Google AI Pricing](https://ai.google.dev/pricing) -- Gemini model line-up and context-caching costs
+- [Gartner: Agentic AI token consumption, March 2026](https://www.gartner.com/en/newsroom/press-releases/2026-03-25-gartner-predicts-that-by-2030-performing-inference-on-an-llm-with-1-trillion-parameters-will-cost-genai-providers-over-90-percent-less-than-in-2025) -- Source of the 5-30x token-per-task multiplier for agentic workloads against a standard chatbot exchange
+- [Gartner: inference cost per agentic workflow, August 2026](https://www.gartner.com/en/newsroom/press-releases/2026-08-17-gartner-predicts-ai-inference-costs-per-agentic-workflow-will-increase-more-than-fivefold-through-2028) -- Forecast that inference cost per agentic workflow increases more than fivefold through 2028, and the argument against a single-model strategy
+- [Spheron: Agentic AI Inference Cost](https://www.spheron.network/blog/agentic-ai-inference-cost-2026) -- Collects the measured multipliers, including the coding-agent finding of up to 1,000x tokens against simple code chat
+- [RouteLLM: Learning to Route LLMs with Preference Data](https://arxiv.org/abs/2406.18665) -- Learned routing reaching over 85% cost reduction at 95% of frontier-model quality, with only 14% of queries sent to the strong model
+- [OpenRouter: Model Routing](https://openrouter.ai/docs/features/model-routing) -- Quality-ranked routing under a hard per-call price ceiling, and per-key monthly spend limits
+
 ### Related Documents in This Series
 
 - [AI-Native Solution Patterns](docs/ai-native-solution-patterns.md) -- The router pattern as an architectural cost lever; seven patterns ordered by increasing complexity and cost
 - [LLM Fundamentals for Practitioners](docs/llm-fundamentals-for-practitioners.md) -- Token mechanics, model tier pricing, and the 50-70% savings from a single routing decision
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: every price, model name and cached-input rate corrected against September 2026 price lists (the March 2026 table listed GPT-4.1, GPT-5, o3, Sonnet 4.6, Opus 4.6 and Gemini 2.5 as current); OpenAI's cached-input discount corrected from a flat 50% to 90% on current flagship tiers; added Failure 7 (the dead brake), the 2026 agentic token-consumption measurements, and field notes from an operating estate.*
