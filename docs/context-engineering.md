@@ -1,25 +1,23 @@
 # Context Engineering: The Discipline of Deciding What the Model Sees
 
-You can write a good prompt. You can call an LLM API. But every production system that handles conversations, retrieves documents, or coordinates multiple LLM calls will eventually hit the same wall: **the context window is finite, and what you put into it determines everything the model can do.** Context engineering is the practice of deciding what goes in, what stays out, and why. It is the skill that separates systems that work from systems that fail silently.
+**Thesis:** The context window is a budget you spend, not a container you fill -- and the context the model actually reasons over is far smaller than the window it advertises.
+**Prerequisites:** [LLM Fundamentals](llm-fundamentals-for-practitioners.md) (tokens, context windows, API call anatomy) and [Prompt Engineering](prompt-engineering.md) (system prompt structure, few-shot examples).
+**Reading time:** ~20 minutes.
 
-This document covers the context window as a resource to be budgeted, the structural patterns that determine information placement, the failure modes that emerge when context is mismanaged, and the techniques that production systems use to keep their context windows effective as conversations grow and pipelines deepen.
-
-**Prerequisites:** [LLM Fundamentals](llm-fundamentals-for-practitioners.md) (tokens, context windows, API call anatomy) and [Prompt Engineering](prompt-engineering.md) (system prompt structure, few-shot examples). This document builds directly on both.
+You can write a good prompt. You can call an LLM API. But every production system that handles conversations, retrieves documents, or coordinates multiple LLM calls will eventually hit the same wall: **the context window is finite, and what you put into it determines everything the model can do.** Context engineering is the practice of deciding what goes in, what stays out, and why.
 
 ---
 
 ## The Core Tension
 
-Prompt engineering teaches you how to write instructions. Context engineering teaches you what to put *around* those instructions -- and what to leave out. The distinction matters because **every token spent on instructions, history, or retrieved documents is a token not available for the model's reasoning and output.** The context window is not a container you fill. It is a budget you spend.
-
-The tension is this: models need context to produce relevant output, but models degrade when given too much context, irrelevant context, or context in the wrong position. More is not better. The right information, in the right position, at the right density -- that is better.
+Prompt engineering teaches you how to write instructions. Context engineering teaches you what to put *around* those instructions -- and what to leave out. The distinction matters because **every token spent on instructions, history, or retrieved documents is a token not available for the model's reasoning and output.** The tension is this: models need context to produce relevant output, but models degrade when given too much context, irrelevant context, or context in the wrong position. More is not better. The right information, in the right position, at the right density -- that is better.
 
 | What teams assume | What actually happens |
 |---|---|
 | "Bigger context window = I can include more" | Attention degrades with volume; accuracy can drop below the no-context baseline ([Liu et al., 2024](https://arxiv.org/abs/2307.03172)) |
 | "I'll include everything just in case" | Irrelevant context introduces noise that actively degrades output quality |
 | "Context management is an optimization" | Context management is a correctness requirement -- get it wrong and the model produces wrong answers confidently |
-| "RAG always helps" | RAG dropped a fine-tuned model's BLEU score from 87 to 83 on a task it had already learned ([OpenAI](https://platform.openai.com/docs/guides/optimizing-llm-accuracy)) |
+| "RAG always helps" | RAG dropped a fine-tuned model's BLEU score from 87 to 83 on a task it had already learned ([OpenAI](https://developers.openai.com/api/docs/guides/optimizing-llm-accuracy)) |
 | "Sub-agents are for role specialization" | Sub-agents are for context isolation -- preventing one task's context from polluting another's ([Horthy](https://github.com/humanlayer/advanced-context-engineering-for-coding-agents/blob/main/ace-fca.md)) |
 | "I'll figure out context management later" | Context problems are architecture problems -- retrofitting them is expensive |
 
@@ -96,7 +94,7 @@ graph LR
 
 **Why it happens:** Every API call in a multi-turn conversation re-sends the full conversation history. A 60-turn customer support conversation can consume 100K+ tokens of history alone, leaving almost no budget for the system prompt, retrieved context, or the model's reasoning. The system prompt -- which contains the model's instructions and constraints -- gets pushed deeper into the context as history accumulates, falling into the low-attention middle zone.
 
-**Example:** A customer support bot with a 128K context window works well for the first 20 turns. By turn 60, the conversation history alone consumes 100K tokens. The system prompt (5K tokens) is now positioned between two massive blocks of conversation text. The model starts violating its constraints -- offering unauthorized refunds, making promises outside its scope -- because the instructions specifying those constraints are in the lost middle. (See [LLM Fundamentals](llm-fundamentals-for-practitioners.md) for the token math behind this failure.)
+**Example:** A customer support bot with a 200K context window works well for the first 20 turns. By turn 60, the conversation history alone consumes 100K tokens. The system prompt (5K tokens) is now positioned between two massive blocks of conversation text. The model starts violating its constraints -- offering unauthorized refunds, making promises outside its scope -- because the instructions specifying those constraints are in the lost middle. (See [LLM Fundamentals](llm-fundamentals-for-practitioners.md) for the token math behind this failure.)
 
 ### Failure 5: Pipeline Context Loss
 
@@ -118,7 +116,7 @@ graph LR
 
 ## The Context Structure Hierarchy
 
-Every LLM call assembles a context from multiple sources. The structure and priority of these sources determines what the model pays attention to and what it ignores. Understanding this hierarchy is the foundation of context engineering.
+Every LLM call assembles a context from multiple sources. The structure and priority of these sources determines what the model pays attention to and what it ignores.
 
 ### The Four Layers
 
@@ -136,7 +134,7 @@ graph TD
     style D fill:#e8f4f8,stroke:#4a90d9
 ```
 
-**Layer 1: System instructions.** The model's identity, behavioral constraints, output format requirements, and domain-specific rules. This layer must be protected at all costs. When you must truncate, system instructions are the last thing to cut. Place them at the very beginning of the context where attention is highest.
+**Layer 1: System instructions.** The model's identity, behavioral constraints, output format requirements, and domain-specific rules. This layer must be protected at all costs. Place it at the very beginning of the context, where attention is highest.
 
 **Layer 2: Retrieved context.** Documents from RAG, tool outputs, file contents, API responses. This layer is *selected per-request* -- different queries should retrieve different context. The selection mechanism (retrieval quality, reranking, relevance filtering) is what determines whether this layer helps or hurts.
 
@@ -230,17 +228,17 @@ graph LR
 
 ---
 
-## Principles of Effective Context Engineering
+## Design Principles
 
 ### Principle 1: Budget Your Context Like Memory, Not Storage
 
-**Why it works:** The context window is RAM, not a hard drive. You do not archive information in it. You load exactly what you need for the current operation, and you unload it when you are done. Teams that treat the context window as storage fill it with "just in case" information and then wonder why output quality degrades.
+**Why it works:** The context window is RAM, not a hard drive: you load what the current operation needs and unload it when you are done. Teams that treat it as storage fill it with "just in case" information and then wonder why output quality degrades.
 
 **How to apply:** Define explicit token budgets for each context layer before building your system. Here are reference budgets for three common system types:
 
 **Single-turn API endpoint (classification, extraction, transformation):**
 
-| Component | Budget | Tokens (128K window) |
+| Component | Budget | Tokens (200K window) |
 |---|---|---|
 | System instructions | 10% | 12,800 |
 | Input document | 60% | 76,800 |
@@ -272,7 +270,7 @@ Monitor actual token usage against these budgets. If any component consistently 
 
 ### Principle 2: Place Information by Attention, Not by Convention
 
-**Why it works:** Attention is not uniform across the context window. The beginning and end receive the most attention. The middle is a dead zone. Placing critical information in high-attention positions is not an optimization -- it is a correctness requirement. The Lost in the Middle study showed that poorly positioned information can make the model perform *worse than having no information at all* ([Liu et al., 2024](https://arxiv.org/abs/2307.03172)).
+**Why it works:** Attention is not uniform: the beginning and end receive the most, the middle is a dead zone. Placing critical information in high-attention positions is a correctness requirement, not an optimization. The Lost in the Middle study showed that poorly positioned information can make the model perform *worse than having no information at all* ([Liu et al., 2024](https://arxiv.org/abs/2307.03172)).
 
 **How to apply:**
 
@@ -307,15 +305,19 @@ Specific rules:
 | System instructions | Do not compress | 1:1 |
 | Recent conversation turns (last 5-7) | Keep verbatim | 1:1 |
 
-Anthropic's compaction system auto-triggers at approximately 95% context capacity and uses the same model to summarize prior context. For most production systems, triggering earlier (at 60-80% capacity) with a cheaper summarization model produces better results at lower cost.
+The provider surfaces changed in 2026: context management is now partly the API's job, and you can choose which half to delegate. Anthropic ships two distinct mechanisms. **Context editing** clears old tool results (`clear_tool_uses_20250919`) and old thinking blocks (`clear_thinking_20251015`) while preserving the message array's structure -- same number of messages, same role order, with the cleared `tool_result` content replaced by a placeholder. **Compaction** (`compact_20260112`) collapses prior history into a single summary block and returns it to you to carry forward. Both accept a trigger on input-token count, a count of recent items to keep, and an exclusion list.
 
-**Context editing** -- selectively removing stale tool call results while preserving the conversational flow -- can reduce token consumption by up to 84% compared to naive full-history approaches ([Anthropic](https://platform.claude.com/docs/en/build-with-claude/compaction)).
+Those two mechanisms are not interchangeable -- the difference is the cache. Triggering earlier (at 60-80% capacity) with a cheaper summarisation model remains better practice than triggering late at the window's edge, but only once you have decided summarisation is the right tool.
+
+**Context editing** is the cheaper half, and the one to reach for first when you can name what is stale ([Anthropic](https://platform.claude.com/docs/en/build-with-claude/context-editing)).
 
 **Addresses failure modes:** Context flooding (Failure 1), History accumulation (Failure 4).
 
 ### Principle 4: Use Sub-Agents for Context Isolation, Not Role-Playing
 
 **Why it works:** A sub-agent runs in a fresh context window. This is its primary value. When a parent agent needs to search 50 files to find a function definition, doing that search in-context pollutes the parent's window with thousands of tokens of file contents. A sub-agent performs the search in its own window and returns a condensed result -- typically 1,000-2,000 tokens -- to the parent ([Anthropic](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)).
+
+The saving is measurable but not free. Benchmarked against a pattern that accumulates context in one window, isolated sub-agents used roughly 9,000 tokens for a multi-domain query where the accumulating pattern used 15,000 ([Augment Code](https://www.augmentcode.com/guides/ai-agent-loop-token-cost-context-constraints)). Set against that, every sub-agent starts cold and pays a fixed overhead before it produces anything useful -- it has no memory of what you have been discussing, so a poorly briefed worker spends its first turns rediscovering context you already had. Fan out only when the subtasks genuinely share little context.
 
 **How to apply:**
 
@@ -393,6 +395,35 @@ The external state store is critical. Without it, context must flow linearly thr
 
 ---
 
+### Principle 7: Cache the Prefix, Then Decide What to Compress
+
+**Why it works:** Prompt caching changed the economics of long context, and it inverted a common instinct. A cached prefix costs a fraction of its uncached price on every later call -- 0.1x on Anthropic's and OpenAI's models, and about 0.1x on Google's. That means the cheapest way to keep a long history is often to keep it rather than summarise it. Summarising rewrites the prefix the cache depends on, so you pay full price to recompute the material you were trying to save. One team measuring this against a summarisation baseline found that keeping the full history beat every summarisation strategy they tested on cost, latency, and memory recall at once ([Bouchard, 2026](https://www.louisbouchard.ai/context-engineering-2026)). The same work found the cheap half of compaction does pay: capping every tool output at a stable size cut cost per turn by 38% with no measurable loss in recall, because it shrinks the context without rewriting the prefix.
+
+**How to apply:**
+
+- **Order the context stable-to-volatile.** System prompt, tool definitions, and long reference material first; conversation turns and retrieved documents after. Anything that changes on every call belongs at the end.
+- **Put a cache breakpoint after the stable block.** Anthropic accepts a single top-level `cache_control` field and manages the breakpoints for you as the conversation grows. Cache writes cost 1.25x input for a five-minute window and 2x for an hour, so the short window pays for itself after one read and the hour-long window after two ([Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing)).
+- **Compress by shrinking content, not by rewriting history.** Trimming a tool result, extracting the relevant lines, or dropping a consumed file read all preserve the cached prefix. Summarising the conversation does not.
+- **Compact only when you can name the constraint.** A cost ceiling, a latency target, or the window itself. Compaction is a response to a limit; if you cannot name the limit, you are paying for the response without the reason.
+
+**Addresses failure modes:** Context flooding (Failure 1), History accumulation (Failure 4).
+
+---
+
+## Evaluation: Real-World Systems
+
+All three providers now ship context-management machinery, and they have made different parts of it the API's job. What each gives you in September 2026:
+
+| System | Prompt caching | Server-side compaction or editing | Trigger control | Distinctive cost |
+|---|---|---|---|---|
+| Anthropic (Claude Opus 5, Sonnet 5, Haiku 4.5, Fable 5.1) | Cache reads at 0.1x input (0.025x on Fable 5.1); writes at 1.25x for 5 minutes, 2x for 1 hour | Context editing clears old tool results (`clear_tool_uses_20250919`) and old thinking blocks (`clear_thinking_20251015`) while preserving the message array; compaction (`compact_20260112`) replaces earlier history with a summary block returned to you | Threshold on input tokens, number of recent items to keep, tool exclusion list | Editing preserves the cached prefix; compaction invalidates it ([docs](https://platform.claude.com/docs/en/build-with-claude/context-editing)) |
+| OpenAI (GPT-5.6 Sol / Terra / Luna, GPT-6 Astra) | Cached input at 0.1x; cache writes at 1.25x | Server-side compaction: a compaction call returns an opaque compaction item that you carry into the next request; conversation state can also be held server-side | Explicit call, or the Responses API's own compaction behaviour | Requests above 272,000 input tokens bill at double the input rate and 1.5x the output rate ([docs](https://developers.openai.com/api/docs/guides/compaction)) |
+| Google (Gemini 3.1 Pro, 3.8 Flash, 3.1 Flash-Lite) | Context caching at roughly 0.1x input (for example $0.075 on Gemini 3.8 Flash), plus an hourly storage charge | No equivalent server-side compaction; context management stays in your client | Your own client logic | Thinking tokens bill at the output rate, so a long reasoning turn costs you even when it never enters the window ([pricing](https://ai.google.dev/gemini-api/docs/pricing)) |
+
+**The honest reading:** delegate the half you can name. Context editing is worth using the moment you can say what is stale -- it is cheap, preserves the cached prefix, and needs no summarisation quality bar. Compaction is worth using when you cannot say what is stale, and you accept the prefix rewrite and its recomputation cost. What no provider will do is decide what belongs in the window in the first place -- that decision is this document's subject.
+
+---
+
 ## Recommendations
 
 ### Short-term (immediate improvements)
@@ -423,6 +454,18 @@ The external state store is critical. Without it, context must flow linearly thr
 
 ---
 
+## Field Notes from an Operating Estate
+
+Three observations from running long-lived agent sessions daily.
+
+**Append-only state, re-read in full, beats clever truncation (September 2026).** In the loop design I run, the short-term context is a typed append-only log -- action history, step-level output, accumulated critiques -- and nothing is mutated in place. The reflection pass re-reads the *whole* prior trace before re-planning, and that rule is enforced structurally rather than left to discipline, because the failure it prevents is subtle: truncate mid-run and the next plan is missing the error context it depends on. The same design refuses to repair a broken record silently -- a corrupted link in the history is refused loudly rather than rebuilt from a guess. If your agent loses its footing after a long run, check whether something upstream is quietly discarding history.
+
+**Externalise anything that must outlive the window (July 2026).** A long-running project of mine keeps its cross-session state in a single file that a continuing session reads first and updates last. That is the whole handoff protocol. The window is a scratchpad and nothing in it survives; the file is the record. Every agent that has to resume work later needs one such file, and it needs the convention that it is written last -- otherwise the resume starts from a state the previous session had already abandoned.
+
+**What enters the window through a tool carries no instruction authority (June 2026).** My agent harness carries a standing instruction that valid commands come only from the user in chat, and that everything observed through tools -- web pages, file contents, mail, knowledge-store pages -- is data. It holds, and it is worth having. I also recorded it honestly as prompt-layer enforcement that the model honours, which is precisely the layer the published guidance on prompt injection says bends under determined attack. The mechanical fix -- sanitising and quarantining instruction-shaped content on the ingest paths -- is deferred, and the deferral is written down with its reason rather than left implicit. A boundary with a known ceiling is a design decision; the same boundary mistaken for a control is a vulnerability.
+
+---
+
 ## The Hard Truth
 
 Context engineering is not an optimization you add after your system works. It is a correctness requirement you must address before your system can work reliably. The difference between a prototype that impresses in a demo and a system that works in production is almost always context management.
@@ -430,6 +473,13 @@ Context engineering is not an optimization you add after your system works. It i
 Most teams discover this too late. They build their retrieval pipeline, their agent loop, their multi-step workflow -- and then notice that output quality degrades as conversations get longer, that RAG sometimes makes things worse, that the agent forgets its own constraints after enough tool calls. These are not bugs to fix. They are architectural failures that should have been prevented by treating the context window as the scarce resource it is.
 
 The uncomfortable truth is that the problem is getting harder, not easier. Larger context windows do not solve context engineering problems -- they mask them. Anthropic describes this as **context rot**: transformers create n-squared pairwise token relationships, and models develop attention patterns from training data where shorter sequences are more common ([Anthropic](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)). Performance degrades along gradients, not at cliffs. A 1M-token window does not mean you can use 1M tokens effectively. It means you can use 1M tokens badly without getting an explicit error.
+
+**What the 2026 measurements added.** A study released this year tested 18 frontier models, including several with 1M-token windows, and every one of them degraded as input length grew -- with the task held constant and the relevant evidence in a favourable position ([Chroma context-rot study, analysed here](https://particula.tech/blog/chroma-context-rot-long-context-degradation)). With distractor documents masked out, the accuracy floor still fell 7.9% from length alone. Two further findings are worth carrying into your design:
+
+- **Position and length are different failures.** Lost-in-the-middle is a *position* failure -- a U-shaped curve across a fixed-length input. Context rot is a *length* failure -- declining accuracy as the input grows with the evidence in a fixed position. They compound, and the dimmest region is the middle of a long context, where both act at once ([TMLS, 2026](https://www.tmls.nyc/research/context-rot-mechanistic)). A benchmark that only samples the position axis, or only the length axis, will report a system as healthier than it is ([Pith, 2026](https://pith.science/paper/2605.23170)).
+- **Tidying your context can make it worse.** Shuffled, incoherent distractors degraded accuracy *less* than coherent ones in that study -- which inverts the instinct to make retrieved context read as one tidy document. Coherent-looking filler is harder for the model to discount.
+
+The practical cap that follows from this body of work: keep the context the model actually reasons over below roughly 30% of the advertised window, and treat everything above that as a budget you spend only with a reason.
 
 The teams that build reliable LLM systems are the ones that treat context engineering as seriously as they treat database schema design or API contract definition. It is the invisible architecture that determines whether everything built on top of it works or fails.
 
@@ -470,11 +520,21 @@ If your system manages long-running conversations, read [Memory and State Manage
 
 ### Official Documentation
 
-- **OpenAI.** "Optimizing LLM Accuracy." Contains the Icelandic Errors Corpus case study where RAG degraded fine-tuned BLEU from 87 to 83. [https://platform.openai.com/docs/guides/optimizing-llm-accuracy](https://platform.openai.com/docs/guides/optimizing-llm-accuracy)
+- **OpenAI.** "Optimizing LLM Accuracy." Contains the Icelandic Errors Corpus case study where RAG degraded fine-tuned BLEU from 87 to 83. [https://developers.openai.com/api/docs/guides/optimizing-llm-accuracy](https://developers.openai.com/api/docs/guides/optimizing-llm-accuracy)
+
+- **OpenAI.** "Compaction." Server-side context compaction for long-running sessions. [https://developers.openai.com/api/docs/guides/compaction](https://developers.openai.com/api/docs/guides/compaction)
+
+- **OpenAI.** "Pricing." Cached-input rates, long-context tiers above 272,000 input tokens, and batch discounts. [https://developers.openai.com/api/docs/pricing](https://developers.openai.com/api/docs/pricing)
 
 - **Anthropic.** "Effective Context Engineering for AI Agents." Describes context rot, attention scarcity, and four strategies for agent context management. [https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
 
+- **Anthropic.** "Context editing." Server-side clearing of stale tool results and thinking blocks, with trigger and retention controls. [https://platform.claude.com/docs/en/build-with-claude/context-editing](https://platform.claude.com/docs/en/build-with-claude/context-editing)
+
 - **Anthropic.** "Compaction." Technical documentation for server-side context compaction triggers, configuration, and billing. [https://platform.claude.com/docs/en/build-with-claude/compaction](https://platform.claude.com/docs/en/build-with-claude/compaction)
+
+- **Anthropic.** "Pricing." Cache write and cache read multipliers, batch discounts, and per-model rates. [https://platform.claude.com/docs/en/about-claude/pricing](https://platform.claude.com/docs/en/about-claude/pricing)
+
+- **Google.** "Gemini API pricing." Context caching rates, thinking-token billing, and tiered long-context pricing. [https://ai.google.dev/gemini-api/docs/pricing](https://ai.google.dev/gemini-api/docs/pricing)
 
 ### Practitioner Articles
 
@@ -491,3 +551,17 @@ If your system manages long-running conversations, read [Memory and State Manage
 - **Maxim.** "Context Engineering for AI Agents: Production Optimization Strategies." Token budget allocation percentages, compression ratios, and cost reduction data. [https://www.getmaxim.ai/articles/context-engineering-for-ai-agents-production-optimization-strategies/](https://www.getmaxim.ai/articles/context-engineering-for-ai-agents-production-optimization-strategies/)
 
 - **mem0.ai.** "LLM Chat History Summarization Guide." The distinction between summarization and memory formation, with performance metrics (80-90% token reduction). [https://mem0.ai/blog/llm-chat-history-summarization-guide-2025](https://mem0.ai/blog/llm-chat-history-summarization-guide-2025)
+
+- **Bouchard, L.-F. (2026).** "Context Engineering in 2026: Why We Stopped Compacting Our Agent's Context." Measured comparison of compaction against prompt caching on cost, latency, and recall; the 38% per-turn saving from capping tool outputs. [https://www.louisbouchard.ai/context-engineering-2026](https://www.louisbouchard.ai/context-engineering-2026)
+
+- **Chroma (2026).** "Context Rot" -- 18-model study of accuracy degradation with input length, including the 7.9% floor drop with distractors masked. [Analysis](https://particula.tech/blog/chroma-context-rot-long-context-degradation)
+
+- **TMLS (2026).** "Context Rot: Mechanistic." Formal separation of the position axis (lost-in-the-middle) from the length axis (context rot). [https://www.tmls.nyc/research/context-rot-mechanistic](https://www.tmls.nyc/research/context-rot-mechanistic)
+
+- **Pith (2026).** "Positional Failures in Long-Context LLMs." Why long-context reasoning benchmarks miss the position axis. [https://pith.science/paper/2605.23170](https://pith.science/paper/2605.23170)
+
+- **Augment Code.** "AI Agent Loop Token Costs: How to Constrain Context." Measured token comparison of isolated sub-agents against a context-accumulating pattern. [https://www.augmentcode.com/guides/ai-agent-loop-token-cost-context-constraints](https://www.augmentcode.com/guides/ai-agent-loop-token-cost-context-constraints)
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: provider-side context management added (Anthropic context editing and compaction, OpenAI server-side compaction) with the cache-prefix trade-off between them; a new principle on prompt caching and prefix stability; the 2026 context-rot measurements separated from the lost-in-the-middle finding; measured sub-agent token overhead added; stale OpenAI documentation links corrected; and current model names and window sizes substituted.*

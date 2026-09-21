@@ -1,5 +1,9 @@
 # Prompt Engineering That Works: Writing Prompts That Survive Production Traffic
 
+**Thesis:** Prompts are specifications, not conversation, and the techniques that survive model upgrades are the boring ones -- explicit structure, explicit constraints, positive instructions, and version control.
+**Prerequisites:** [LLM Fundamentals](llm-fundamentals-for-practitioners.md) (tokens, context windows, API call anatomy).
+**Reading time:** ~22 minutes.
+
 You can call an LLM API. You have sent prompts and received responses. Now you need those responses to be consistent, structured, and reliable across thousands of inputs you have never seen. This document covers the techniques that actually matter in production -- and the ones that waste your time.
 
 ---
@@ -10,14 +14,15 @@ Prompts look like natural language, but they need to function like code. This is
 
 The tension is this: the same property that makes LLMs powerful (they understand natural language) is what makes them unreliable (natural language is ambiguous). Production prompt engineering is the discipline of removing that ambiguity without losing the flexibility.
 
-| What teams expect | What actually happens |
+| What teams assume | What actually happens |
 |---|---|
 | "The model understands what I mean" | The model completes what you wrote -- including the ambiguity |
-| "I told it not to do X, so it won't" | Negative instructions increase the salience of the prohibited behavior |
+| "I told it not to do X, so it won't" | Negative instructions increase the salience of the prohibited behavior ([Anthropic prompting guide](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices)) |
 | "More instructions = better output" | Contradictory or redundant instructions degrade output quality |
-| "Chain-of-thought always improves accuracy" | CoT decreases accuracy on simple tasks and adds latency on all tasks |
+| "Chain-of-thought always improves accuracy" | CoT decreases accuracy on simple tasks and adds latency on all tasks ([Wharton, 2025](https://gail.wharton.upenn.edu/research-and-insights/tech-report-chain-of-thought/)) |
 | "I need a clever prompt" | You need a clear, structured prompt with explicit constraints |
 | "I'll tweak the prompt until it works" | You need evaluation infrastructure, not more tweaking |
+| "Reasoning models made prompt engineering obsolete" | Reasoning models made some techniques unnecessary and made others load-bearing -- explicit constraints, structured output, and a deliberate reasoning-effort setting all still carry weight ([OpenAI reasoning best practices](https://developers.openai.com/api/docs/guides/reasoning-best-practices)) |
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#f0e8f8', 'tertiaryColor': '#e8f8e8', 'clusterBkg': '#f5f5f5', 'clusterBorder': '#cccccc', 'edgeLabelBackground': '#f5f5f5'}}}%%
@@ -83,7 +88,9 @@ Research confirms this is not just anecdotal. A study on InstructGPT found that 
 
 A [2025 study from Wharton](https://gail.wharton.upenn.edu/research-and-insights/tech-report-chain-of-thought/) tested CoT across 8 models and found that **Gemini Pro 1.5 saw perfect accuracy decline by 17.2% with CoT prompting.** Gemini Flash 2.5 showed a 13.1% degradation at the 100% accuracy threshold. The mechanism: CoT can improve performance on difficult questions, but it introduces variability that causes errors on questions the model would otherwise answer correctly. For reasoning models (o3-mini, o4-mini), CoT provided only 2.9-3.1% average improvements despite 20-80% increases in response time.
 
-[OpenAI's own GPT-4.1 prompting guide](https://developers.openai.com/cookbook/examples/gpt4-1_prompting_guide) acknowledges this: prompting step-by-step comes "with the tradeoff of higher cost and latency associated with using more output tokens." For reasoning models, "asking a reasoning model to reason more may actually hurt performance."
+**September 2026 update: the dial replaced the instruction.** The finding above is now settled practice rather than a debate. Every current frontier model reasons internally by default -- Anthropic's models run adaptive thinking with an effort setting that defaults to `high`, OpenAI exposes `reasoning_effort` from `none` to `ultra`, and Google bills thinking tokens at the output rate whether or not you asked for them. So explicit chain-of-thought instructions no longer control reasoning; they compete with it. Ask for reasoning depth through the API's effort control instead, and spend your prompt on the thing the model cannot infer: what "done" looks like for this task.
+
+OpenAI's current guidance makes the same point in its own words: prompting step-by-step comes "with the tradeoff of higher cost and latency associated with using more output tokens", and for reasoning models, "asking a reasoning model to reason more may actually hurt performance" ([OpenAI reasoning best practices](https://developers.openai.com/api/docs/guides/reasoning-best-practices)).
 
 ### Failure 5: Few-shot examples that waste tokens without improving quality
 
@@ -166,7 +173,7 @@ Most teams are at Level 1 or 2. The techniques in this document will move you to
 
 ---
 
-## Principles: The Techniques That Actually Work
+## Design Principles
 
 ### Principle 1: Structure prompts with explicit sections, not prose
 
@@ -252,7 +259,7 @@ graph LR
 
 **When to use zero-shot (no examples):**
 - The task is well-understood by the model (summarization, translation, simple classification)
-- You are using a reasoning model (o3, DeepSeek R1) -- [few-shot can degrade their performance](https://www.prompthub.us/blog/the-few-shot-prompting-guide)
+- You are using a reasoning model (Claude Opus 5, GPT-5.6, Gemini 3.1 Pro) -- [few-shot can degrade their performance](https://www.prompthub.us/blog/the-few-shot-prompting-guide)
 - Token budget is tight and format instructions alone are sufficient
 
 **When few-shot is essential:**
@@ -282,7 +289,7 @@ graph LR
 | Multi-step math | Yes, explicit CoT | Each step builds on the previous one |
 | Code debugging | Yes, structured CoT | Need to trace execution flow |
 | Ambiguous analysis | Yes, but separate thinking from answer | Reasoning clarifies edge cases |
-| Any task with a reasoning model | No explicit CoT | The model already reasons internally; [adding more can hurt](https://developers.openai.com/cookbook/examples/gpt4-1_prompting_guide) |
+| Any task with a reasoning model | No explicit CoT | The model already reasons internally; [adding more can hurt](https://developers.openai.com/api/docs/guides/reasoning-best-practices) |
 
 **When you do use CoT, separate the reasoning from the answer:**
 
@@ -561,6 +568,30 @@ Prompt engineering is the first tool in the hierarchy, not the only one. See [AI
 
 ---
 
+## Evaluation: Real-World Systems
+
+The three providers' prompting guides have converged on structure and diverged on reasoning control. What each one tells you in September 2026:
+
+| System | Reasoning control | What its guidance emphasizes | Where it diverges |
+|---|---|---|---|
+| Anthropic (Claude Opus 5, Sonnet 5, Haiku 4.5, Fable 5.1) | Adaptive thinking; effort setting via `output_config`, default `high` | Explicit XML-style structure tags, long documents placed at the top, role and tone specified in the system prompt | States directly that positive instructions outperform negative ones, and that system-prompt framing carries more weight than in-turn pleading ([guide](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices)) |
+| OpenAI (GPT-5.6 Sol / Terra / Luna, GPT-6 Astra) | `reasoning_effort` from `none` to `ultra`, or `reasoning={"mode": "pro", "effort": "medium"}` | Result-first instructions, explicit success criteria, minimal scaffolding for reasoning models | Advises against telling a reasoning model to reason more, and recommends lowering effort before rewriting the prompt ([guide](https://developers.openai.com/api/docs/guides/reasoning-best-practices)) |
+| Google (Gemini 3.1 Pro, 3.8 Flash) | Thinking on by default; thinking tokens billed at the output rate | Clear direct task statements, few-shot with consistent formatting, system instructions for persona | Charges for thinking tokens at the output rate, so prompt verbosity has a second cost channel ([pricing](https://ai.google.dev/gemini-api/docs/pricing)) |
+
+**What the divergence means for your prompt:** the structural advice is portable and the reasoning advice is not. A prompt that names its output format, states constraints positively, and puts long material early moves between these three systems unchanged. A prompt that tries to control *how much* the model thinks does not -- that control is an API parameter everywhere and a prompt instruction nowhere.
+
+---
+
+## Field Notes from an Operating Estate
+
+Two observations from writing instructions that agents actually have to follow.
+
+**An instruction that names a trade-off without resolving it will be read the cheap way (July 2026).** A rule I wrote for my own agent instructions said that clarity mattered more than concision. The agents read it as a standing licence to write long, and produced exactly what the rule existed to prevent: messages that were over long, carried information irrelevant to the decision in front of the reader, and used abbreviations the reader had to look up. The defect was structural -- the rule argued against itself by naming a length axis it did not resolve. I deleted the axis and replaced it with one test: can the reader act from this message alone? Padding, shorthand, and batched questions all fail that test, and none of them can hide behind clarity. The generalisation is what stuck: when two goals compete in an instruction, resolve the competition or the writer picks for you.
+
+**A pointer is not an instruction until it resolves (August 2026).** I audited the routing edges between the skills in my agent setup and found 219 of them -- 44 crossing a library boundary -- and 8 already pointing at nothing. Nothing had complained, because a dangling pointer to an instruction is not an error. It is silence: the model simply never receives the text. I now run a gate that fails the commit that would create a broken edge, and I treat "the instruction did not fire" and "the instruction failed" as two different results. If your instructions are assembled from references, the reference graph is part of the prompt and deserves a check.
+
+---
+
 ## Recommendations
 
 ### Short-term: your first prompts
@@ -641,5 +672,13 @@ This document covers how to write effective prompts for well-defined tasks. The 
 ### Official Documentation
 
 - [Anthropic, "Use XML tags to structure your prompts"](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/use-xml-tags) -- Official guidance on XML tag structuring, nesting, and combining with other techniques
-- [OpenAI, "GPT-4.1 Prompting Guide"](https://developers.openai.com/cookbook/examples/gpt4-1_prompting_guide) -- OpenAI's guidance on CoT trade-offs and reasoning model prompting, including the acknowledgment that adding reasoning can hurt performance
+- [Anthropic, "Claude prompting best practices"](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/claude-prompting-best-practices) -- Current guidance, including long-context placement and positive over negative instructions
+- [Anthropic, "Effort"](https://platform.claude.com/docs/en/build-with-claude/effort) -- How the reasoning-effort setting replaced explicit chain-of-thought control
+- [OpenAI, "Reasoning best practices"](https://developers.openai.com/api/docs/guides/reasoning-best-practices) -- Current guidance on `reasoning_effort`, when to raise it, and when raising it hurts
+- [OpenAI, "GPT-4.1 Prompting Guide"](https://developers.openai.com/cookbook/examples/gpt4-1_prompting_guide) -- Retained for the historical CoT trade-off discussion; superseded as current guidance
 - [DAIR.AI, "Few-Shot Prompting"](https://www.promptingguide.ai/techniques/fewshot) -- Academic-oriented guide citing foundational few-shot research including Min et al. 2022
+
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: the chain-of-thought section rewritten around reasoning-effort controls (Anthropic adaptive thinking, OpenAI `reasoning_effort` from `none` to `ultra`, Google thinking tokens billed as output); retired OpenAI prompting-guide links replaced with current guidance; current model names substituted throughout; a myth-table row added for the "reasoning models made prompting obsolete" claim; and a cross-provider evaluation of prompting guidance added.*
