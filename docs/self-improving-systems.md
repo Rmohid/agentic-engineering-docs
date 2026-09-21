@@ -2,6 +2,24 @@
 
 Every self-improving system is a bet that the system can evaluate its own outputs well enough to create a training signal that drives real improvement. Most of the time, that bet loses.
 
+**Thesis:** A system improves itself only where an independent, cheap verifier exists; everywhere else the loop inflates its own confidence and calls it progress.
+
+**Prerequisites:** [Evaluation-Driven Development](evaluation-driven-development.md) (the measurement infrastructure the loop runs on), [LLM Role Separation: Executor vs. Evaluator](llm-role-separation-executor-evaluator.md) (why the same model cannot judge its own work).
+
+**Reading time:** 27 minutes
+
+---
+
+| What teams assume | What actually happens |
+|---|---|
+| "The model will improve itself if we let it iterate" | Self-verification yields nearly zero improvement across state-of-the-art models; cross-family verification gains [10-20x more](https://arxiv.org/abs/2512.02304). |
+| "More iterations means more improvement" | Without a deterministic external verifier, self-referential and proxy signals show [diminishing returns and can degrade with iteration](https://www.microsoft.com/en-us/research/publication/agentic-evolution-from-self-improving-agents-to-co-evolving-human-ai-systems). |
+| "Training on our own best outputs is the fast path" | The same model prefers its own text in [87.8% of pairwise judgements against 47.6% for humans](https://arxiv.org/abs/2404.13076) -- the filter keeps confident repetition, not correctness. |
+| "A better generator is the lever" | Verifier quality dominates. Improving the verifier pays more than improving the generator. |
+| "The system should modify its weights to learn" | Weight-level persistence is the least inspectable and least reversible surface. Persist as code first. |
+| "We can measure improvement with our own metric" | If the same system generates and scores the metric, the metric measures fluency, not capability. |
+| "A framework will give us the improvement loop" | A framework earns admission the same way any dependency does -- and a rejected one must be rejected by measurement, with the reason recorded. |
+
 ---
 
 ## The Core Tension: Correlated Noise Kills Improvement
@@ -421,7 +439,7 @@ Where autoresearch uses hill-climbing with a single agent, [AlphaEvolve](https:/
 
 ---
 
-## Six Principles for Self-Improvement That Actually Works
+## Seven Principles for Self-Improvement That Actually Works
 
 Each principle directly counters one or more failure modes from the taxonomy.
 
@@ -473,16 +491,36 @@ Each principle directly counters one or more failure modes from the taxonomy.
 
 **How to apply:** Identify the minimum set of components that need to change for improvement to occur. Make everything else immutable. For autoresearch-style loops: one editable file, one immutable evaluator, one governance document. For agent self-improvement: editable prompts and tool configurations, immutable safety constraints and evaluation harnesses. The evaluator and the governance rules must never be in the modification surface.
 
+### Principle 7: Admit the Machinery by Measurement
+
+**The principle:** When the loop needs an engine, a library, or a framework, admission is earned by measurement rather than by preference -- and a rejection is recorded together with the reason that produced it. Prefer the smallest thing that runs: a standard library and a typed protocol seam before a framework.
+
+**Why it works:** Every dependency inside the improvement loop is a component the loop can no longer verify, bound, or replace. A framework that owns the loop's control flow puts part of the modification surface in someone else's repository, which breaks Principle 6 directly. Recording the rejection also keeps the decision reviewable: the next engineer sees why the obvious candidate was not taken, instead of re-litigating it.
+
+**How to apply:** Before adopting, list the candidates and the single criterion that decides, then measure against it. A design that rejects a framework names each candidate and the disqualifying property -- coupling to one agent library, an abstraction over framework application interfaces rather than a minimal core, or dependency churn. Put a typed protocol seam at every edge (chat backend, memory store, tool runner, evaluator) so the loop's own logic stays small enough to read in one diff and outlives whatever backend is fashionable.
+
+```python
+from typing import Protocol
+
+class Evaluator(Protocol):
+    def verdict(self, expected: str, actual: str) -> str: ...
+
+# The loop depends on this shape, never on a framework class.
+# Adopting a library means implementing the protocol,
+# not importing its control flow into the loop.
+```
+
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#fef3e2', 'tertiaryColor': '#f0e8f4', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
 graph TD
-    subgraph Principles["Six Principles"]
+    subgraph Principles["Seven Principles"]
         P1["1. Separate evaluator<br/>from generator"]
         P2["2. Fix compute<br/>budget"]
         P3["3. Hill-climbing with<br/>escape hatches"]
         P4["4. Measure more than<br/>you optimize"]
         P5["5. Persist at the<br/>right layer"]
         P6["6. Bound the<br/>modification surface"]
+        P7["7. Admit machinery<br/>by measurement"]
     end
 
     subgraph Counters["Failure Modes Addressed"]
@@ -502,6 +540,7 @@ graph TD
     style P4 fill:#e8f4f8,stroke:#4a90d9
     style P5 fill:#e8f4f8,stroke:#4a90d9
     style P6 fill:#e8f4f8,stroke:#4a90d9
+    style P7 fill:#e8f4f8,stroke:#4a90d9
     style F1 fill:#fde8e8,stroke:#d47474
     style F2 fill:#fde8e8,stroke:#d47474
     style F3 fill:#fde8e8,stroke:#d47474
@@ -565,6 +604,18 @@ Most people in the field get this wrong. They see autoresearch and extrapolate t
 
 The bet is not on general self-improvement. The bet is on expanding the set of domains where verification is cheap enough to make the loop work.
 
+The convergence is now cross-institutional. A [June 2026 survey of roughly 300 papers on agentic evolution](https://www.microsoft.com/en-us/research/publication/agentic-evolution-from-self-improving-agents-to-co-evolving-human-ai-systems) found that autonomous evolution produces its strongest reported results exactly where deterministic verifiers, independent of the system being evaluated, are available -- and that absent those verifiers, self-referential and proxy-based signals yield diminishing returns and can degrade with iteration. The same survey reports that beyond that boundary, reliable evolution depends on human-involved selective pressure, and that such pressure is rare and low-bandwidth. That is the same boundary this document draws by other means: the loop works where verification is cheap and independent, and stops working where it is not.
+
+---
+
+## Field Notes from an Operating Estate
+
+**September 2026 -- a reusable procedure needed an admission test.** A practitioner operating an estate of a dozen agent harnesses gave the system a gate on what it is allowed to learn. A new reusable procedure cannot be committed until a test proves that it executed at least once and cites the live intent it serves. Ungoverned growth became uncommittable. The finding is that a self-improving system needs a test for what it learns that is as strict as the test for what it ships -- otherwise it accumulates procedures that are confident, plausible, and never verified.
+
+**September 2026 -- improvements persisted as inspectable text, never as weights.** Every capability the estate's agents gained was persisted as a file a human can read: a rule, a procedure, a gate definition. Rollback is a version-control revert, and the diff is small enough to review in one sitting. The modification surface was bounded before the loop was allowed to run, not after it misbehaved. Nothing in the estate's record was learned by a weight change, and nothing needed to be.
+
+**September 2026 -- the engine was chosen by measurement, not by preference.** Designing the reflective plan-execute-assess-reflect loop, the estate evaluated the obvious published candidates and adopted none of them. Each rejection carries a named disqualifying property rather than a taste: coupling to one agent library, an abstraction over framework interfaces instead of a minimal core, dependency churn. What shipped uses only the language standard library behind typed protocol seams. This is Principle 7 applied at the point of decision, and it is the reason the loop's own logic is a page a reviewer can read.
+
 ---
 
 ## Summary Checklist
@@ -599,6 +650,9 @@ The bet is not on general self-improvement. The bet is on expanding the set of d
 - [Wang et al. -- Voyager: An Open-Ended Embodied Agent with Large Language Models (2023)](https://arxiv.org/abs/2305.16291): Skill library architecture for lifelong learning in Minecraft.
 - [Robeyns et al. -- SICA: Self-Improving Coding Agent (ICLR 2025 Workshop)](https://arxiv.org/html/2504.15228v2): Self-modifying coding agent improving from 17% to 53% on SWE-Bench Verified.
 - [AlphaEvolve -- Strassen Matrix Multiplication Improvement (arXiv 2506.13131)](https://arxiv.org/abs/2506.13131): First improvement over Strassen's 1969 algorithm in 56 years.
+- [Microsoft Research -- Agentic Evolution: From Self-Improving Agents to Co-Evolving Human-AI Systems (June 2026)](https://www.microsoft.com/en-us/research/publication/agentic-evolution-from-self-improving-agents-to-co-evolving-human-ai-systems): Survey of roughly 300 papers; autonomous evolution works where deterministic independent verifiers exist and yields diminishing returns without them.
+- [Self-Improvements in Modern Agentic Systems: A Survey (arXiv 2607.13104)](https://arxiv.org/abs/2607.13104): Formalises self-improvement as a self-induced update operator over both model parameters and scaffold components.
+- [Multi-Agent Evolve: LLM Self-Improve through Co-evolution (arXiv 2510.23595)](https://arxiv.org/abs/2510.23595): Three co-evolving roles from one model; reports an average gain of 4.54% without human-curated supervision.
 
 ### Practitioner Articles and Blogs
 
@@ -620,3 +674,7 @@ The bet is not on general self-improvement. The bet is on expanding the set of d
 - [LLM Role Separation: Executor vs. Evaluator](llm-role-separation-executor-evaluator.md): Seven levels of isolation patterns for breaking generator-evaluator coupling.
 - [Evaluation-Driven Development](evaluation-driven-development.md): The measurement infrastructure that self-improvement loops depend on.
 - [Quality Gates in Agentic Systems](quality-gates-in-agentic-systems.md): Why self-enforcement fails and structural alternatives.
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: added the myth-versus-reality table, front matter, and field notes; added Principle 7 (admit the machinery by measurement) and the June 2026 agentic-evolution survey evidence on diminishing returns without an independent verifier.*
