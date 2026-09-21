@@ -280,7 +280,7 @@ Why a rulebook for agents fails the same way a rulebook for people fails. The re
 
 ### [The AI-Native Framework Landscape](ai-native-framework-landscape.md)
 
-A comprehensive map of 22+ production-grade third-party frameworks across 7 layers of the AI application stack: inference/serving, vector storage, LLM gateways, structured output, orchestration, agent frameworks, and evaluation/observability. Includes composition patterns, a decision framework, and practitioner consensus on when to use (and skip) frameworks.
+A comprehensive map of 31 current products across 7 layers of the AI application stack: inference/serving, vector storage, LLM gateways, structured output, orchestration, agent frameworks, and evaluation/observability. Includes a churn table of the 2026 acquisitions, mergers, and shutdowns, composition patterns, a decision framework, and practitioner consensus on when to use (and skip) frameworks.
 
 ### [File-Based Memory for AI Systems](file-based-memory-for-ai-systems.md)
 
