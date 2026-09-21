@@ -45,7 +45,7 @@ Or jump directly to what you need:
 
 **Tier 6 -- Agent Operations and Governance:** Agent skills and procedural memory, unattended agent operations, agent governance and intent records
 
-Each document is 2,500-7,000 words with Mermaid diagrams, comparison tables, working code examples, a dated field-notes section, and a References section with clickable URLs to every source consulted. Every document ends with the date it was last reviewed.
+Each document runs 3,800-7,900 words with Mermaid diagrams, comparison tables, working code examples, a dated field-notes section, and a References section with clickable URLs to every source consulted. Every document ends with the date it was last reviewed.
 
 ## Repository Structure
 
