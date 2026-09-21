@@ -1,10 +1,26 @@
 # Testing and Shipping LLM Systems: The Deployment Pipeline Between Evaluation and Production
 
+**Thesis:** The hard part of shipping an LLM system is not writing tests for a non-deterministic component -- it is that a prompt change is a behavioral change to every user at once, so it deserves the deployment discipline of a database migration: versioned, gated, rolled out progressively, and instantly reversible.
+
+**Prerequisites:** [Evaluation-Driven Development](evaluation-driven-development.md), [Observability and Monitoring](observability-and-monitoring.md).
+
+**Reading time:** 19 minutes
+
 [Evaluation-Driven Development](evaluation-driven-development.md) teaches you how to measure quality. [Observability and Monitoring](observability-and-monitoring.md) teaches you how to monitor production. This document covers what happens between them: the testing strategies, deployment pipelines, and release practices that get an LLM system safely from "it works on my machine" to "it works for all users."
+
+| What teams assume | What actually happens |
+|---|---|
+| Non-determinism means you cannot test LLM systems | Most of an LLM system is deterministic and should be tested like ordinary code; only the model's output needs probabilistic grading ([Hamel Husain](https://hamel.dev/blog/posts/evals/)) |
+| Prompt changes are configuration edits | Prompt changes are the primary source of LLM production incidents; three words added for "conversational flow" spiked structured-output errors within hours ([Deepchecks](https://deepchecks.com/llm-production-challenges-prompt-update-incidents/)) |
+| A passing eval suite means the release is safe | If you pass 100% of your evals, the evals are not challenging enough -- the suite has become a target rather than a measurement instrument ([Hamel Husain](https://hamel.dev/blog/posts/evals/)) |
+| Deploy to 100% and watch the dashboards | The canonical counter-example deployed a system-prompt change to 180M+ users at once and took four days to fix; a canary would have contained it to a tiny cohort ([sycophancy incident analysis](https://leehanchung.github.io/blogs/2025/04/30/ai-ml-llm-ops/)) |
+| Verifying the commit or version you requested is verification | In September 2026 four major coding agents were made to execute a malicious plugin while being told to run a reviewed commit, because none of them verified what was actually checked out ([Plugin4Shell](https://www.air.security/blog-posts/plugin4shell)) |
+| An agent that says the tests pass has tested | A model's own assessment of its work is the weakest available evidence; only a runnable check on the artifact decides |
+| Your CI pipeline is a build system, not an attack surface | An injected GitHub issue reached CI runner credentials in three agent products in 2026 ([CSA research note](https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-coding-agent-cicd-secrets-20260808-csa)) |
 
 ---
 
-## The Tension: Non-Determinism Breaks Everything You Know About Testing
+## The Core Tension: Non-Determinism Breaks Everything You Know About Testing
 
 Traditional software testing rests on a fundamental assumption: given the same input, the system produces the same output. LLMs violate this assumption by design. The same prompt, same model, same temperature produces different outputs on consecutive calls. This is not a bug -- it is the mechanism that makes LLMs useful. But it invalidates every testing strategy built on deterministic assertions.
 
@@ -57,6 +73,18 @@ Static test suites become stale as the product evolves. The tests pass, but prod
 The system returns syntactically valid responses while semantic quality erodes. Models claiming 200K context degrade noticeably around 130K tokens. [Anthropic found](https://www.zenml.io/llmops-database/building-production-ai-agents-lessons-from-claude-code-and-enterprise-deployments) that 90% of agent failures trace to unclear instructions, not model limitations -- but these failures produce coherent-sounding wrong answers that pass basic checks.
 
 **Root cause:** Monitoring uptime and latency instead of output quality. The system is "up" but producing garbage.
+
+### Failure 7: The Verification Gap
+
+You verified the intent and shipped something else. The September 2026 Plugin4Shell disclosures are the cleanest example: four coding agents were asked to run a specific, reviewed commit and all four executed a different one, because each passed the commit hash to Git without checking what Git had checked out. The same class of gap appears in ordinary pipelines: a dependency pinned by version rather than by digest, a model alias that silently points at a new snapshot, a prompt loaded from a path that a build step can rewrite ([AIR Security](https://www.air.security/blog-posts/plugin4shell), [CSO Online](https://www.csoonline.com/article/4223909/a-zero-click-rce-flaw-in-ai-coding-agents-could-have-exposed-enterprise-systems-2.html)).
+
+**Root cause:** Verification of the request instead of the artifact. Verify what you received: pin dependencies by digest, confirm the checked-out revision matches the requested one, and record the resolved model identifier with the eval results, because an alias is not an identity.
+
+### Failure 8: Grading Your Own Homework
+
+The same agent writes the change and reports whether it worked. Its report is fluent, confident, and unreliable: models rationalize, hallucinate compliance, and describe intent as outcome. In agent pipelines this is the most common cause of "done" that is not done.
+
+**Root cause:** Self-assessment treated as evidence. The fix is structural, not rhetorical -- see Design Principle 6.
 
 ---
 
@@ -138,6 +166,69 @@ These test complete user workflows, including multi-turn conversations and agent
 
 ---
 
+## The Deployment Maturity Spectrum: Levels 0 to 5
+
+| Level | Practice | What it catches | What it still misses |
+|---|---|---|---|
+| **0. Manual** | Hand-run a few inputs before release; prompts live in code as strings | Nothing systematic | Everything. Regression arrives with the next unrelated commit |
+| **1. Deterministic tests in CI** | Tool routing, schema validation and format checks run on every commit | Broken glue code, schema drift | Output quality, which is the thing users notice |
+| **2. Eval gate on prompt changes** | Eval suite with binary rubrics runs when `prompts/**` changes; pass-rate threshold blocks the merge | Quality regressions before merge | Overfitting to the suite; prompt changes that pass the gate but change behaviour elsewhere |
+| **3. Versioned prompts and canary rollout** | Immutable prompt versions, aliases for `production`/`canary`, shadow then canary then full rollout, alias-based rollback | Blast radius: a bad change reaches 1-5% of users, not 100% | Deployment is safe, but quality drifts between releases and nothing notices |
+| **4. Data flywheel** | Every production failure becomes a permanent regression case on a 2-4 week cadence; eval suite refreshed from live traces | Regression blindness, suite staleness | Agent behaviour that never surfaces as a user-visible failure |
+| **5. Externalized verification with receipts** | Every claim about the system is backed by a runnable check on the landed artifact, and the check's output is stored | Self-reported success, verification gaps, agent-pipeline regressions | Nothing structural -- this is the level to aim for |
+
+Measured references exist for the middle of that ladder: the sycophancy incident took four days to fix after reaching 180M+ users with no progressive rollout, and prompt changes are documented as the leading source of LLM production incidents ([Deepchecks](https://deepchecks.com/llm-production-challenges-prompt-update-incidents/)). Both are level-2-and-below failures.
+
+---
+
+## Design Principles
+
+### Principle 1: Test at the layer that owns the property
+
+Route each property to the cheapest layer that can decide it. Format, routing and schema are deterministic and belong in unit tests on every commit. Semantic quality belongs in graded evals with binary rubrics. Workflow completion belongs in scenario tests. Teams that push everything into evals pay model prices to check things a regex can settle, and teams that push quality checks into unit tests get flaky suites they eventually delete.
+
+### Principle 2: A prompt change is a behavioral change
+
+Version it, review it, gate it, roll it out progressively, and keep the rollback path warm. A prompt version encompasses the template text, model configuration, tool definitions and input schema, because changing any of them changes behaviour ([Hamel Husain](https://hamel.dev/blog/posts/evals-faq/)). Review the **rendered prompt**, not the template: a variable that resolves differently changes behaviour just as much as an edited sentence, and a prompt diff makes that visible in review.
+
+### Principle 3: Binary rubrics and an independent judge
+
+A Likert scale hides disagreement inside an average; a binary PASS/FAIL forces the rubric author to say what actually matters. Grade with a different model family from the one under test, so the generator's biases are not the judge's blind spots (see [LLM Role Separation](llm-role-separation-executor-evaluator.md)).
+
+### Principle 4: Every production failure becomes a permanent test case
+
+The flywheel is the only mechanism that keeps a suite honest as the product moves. Without it, the suite encodes the launch-day product forever, and coverage of the current failure distribution decays to zero.
+
+### Principle 5: Verify the artifact, not the intent
+
+Pin dependencies by digest and add a cooldown so a package published minutes ago cannot enter your build; verify the checked-out revision matches the requested one; record the resolved model identifier alongside every eval result. Plugin4Shell is the same lesson one layer up, and it cost four major products a coordinated disclosure to learn ([AIR Security](https://www.air.security/blog-posts/plugin4shell)).
+
+### Principle 6: Externalize verification and keep the receipt
+
+A runnable check decides, not the author's assessment. The practical form is a receipt: the check, its command, and its output, stored with the change so a reviewer can re-run it. Where a phase of work has one deliverable, it has one proof artifact.
+
+```yaml
+# .github/workflows/receipt.yml -- one phase, one check, one stored result
+jobs:
+  verify:
+    steps:
+      - name: Run the check that decides this claim
+        run: |
+          set -euo pipefail
+          bash checks/verify-deliverable.sh | tee receipt.txt
+      - name: Store the receipt with the change
+        uses: actions/upload-artifact@v4
+        with:
+          name: receipt-${{ github.sha }}
+          path: receipt.txt
+```
+
+### Principle 7: Report an unexpected pass
+
+When a check is written to fail before a change and it passes, treat that as a finding, not a gift. An unexpected green means either the check does not test what you think, or the condition you were about to change is not the one causing the problem. Both are worth more than the change you were about to make.
+
+---
+
 ## Prompt Versioning: Prompts Are Code
 
 A "versioned prompt" encompasses the template text, model configuration (provider, model ID, temperature), input schema, tool definitions, and metadata. **If any of these change, behavior changes -- so all are versioned together.**
@@ -151,6 +242,8 @@ A "versioned prompt" encompasses the template text, model configuration (provide
 3. **Semantic aliasing.** Map human-readable tags (`production`, `staging`, `canary`) to specific immutable versions. Promotion happens by reassigning the alias, not by modifying the prompt.
 
 4. **Metadata on every version.** Author, timestamp, rationale for the change, linked eval results. When rollback is needed, the metadata tells you what changed and why.
+
+5. **Pin the model identity, not the model name.** An alias such as "latest" is a pointer that a provider can move. Record the resolved model identifier with each eval run so that a silent provider-side update is visible as a change in your results rather than as an unexplained quality shift.
 
 ---
 
@@ -209,10 +302,26 @@ Every production incident becomes a permanent regression test case. Teams that r
 
 | Trigger | What Runs | Gate |
 |---|---|---|
-| **Every commit** (prompt or config change) | Deterministic unit tests + fast LLM eval (10-100 examples) | 95%+ pass rate |
+| **Every commit** (prompt or config change) | Deterministic unit tests + fast LLM eval (10-100 examples) + prompt diff in review | 95%+ pass rate |
 | **Nightly** | Broad regression suite + red team/security scanning + semantic drift detection | No new failure modes |
 | **Weekly** | Human review (100+ production traces) + judge alignment validation + cost trend analysis | Domain expert sign-off |
 | **Pre-release** | End-to-end scenario tests + full eval suite against held-out data | Release criteria met |
+| **Continuous** | Dependency cooldown, digest pinning, agent-tooling version checks | No version newer than the cooldown window enters the build |
+
+Two additions to that pipeline matter more in 2026 than they did in 2024, because agents are now inside it. First, the pipeline is an attack surface: an injected issue or pull request reached CI runner credentials in three coding-agent products in 2026, so treat anything the agent reads from an issue tracker as untrusted input to a privileged job ([CSA research note](https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-coding-agent-cicd-secrets-20260808-csa)). Second, an install cooldown is now a supported, cheap control: package managers can refuse versions published within a configurable window, which closes the window where a compromised release is fresh and unnoticed ([pnpm 10.16](https://pnpm.io/blog/releases/10.16)).
+
+---
+
+## Evaluation: Real-World Systems
+
+| System / event | What happened | The testing lesson |
+|---|---|---|
+| **ChatGPT sycophancy incident (April 2025)** | A system-prompt change reached 180M+ users simultaneously; four days to fix ([analysis](https://leehanchung.github.io/blogs/2025/04/30/ai-ml-llm-ops/)) | Progressive rollout is not optional for prompt changes; the canary exists to bound the blast radius, not to improve the average |
+| **Documented prompt-update incident** | Three words added for "conversational flow" spiked structured-output failures within hours ([Deepchecks](https://deepchecks.com/llm-production-challenges-prompt-update-incidents/)) | Prompt changes need their own gate, because code review does not evaluate behaviour |
+| **Promptfoo** | Open-source eval runner with CI integration and pass-rate gates ([docs](https://www.promptfoo.dev/docs/integrations/ci-cd/)) | The gate can be a shell threshold; the discipline is that it blocks the merge, not that the tool is sophisticated |
+| **Langfuse / Agenta / MLflow** | Prompt management with versioning, staged rollout and CI/CD wiring ([Langfuse](https://langfuse.com/resources/engineering/prompt-cicd), [Agenta](https://agenta.ai/blog/cicd-for-llm-prompts), [MLflow](https://mlflow.org/articles/what-is-canary-deployment-ai)) | Managed prompt registries solve the mechanics; the aliasing and rollback model is what you are buying |
+| **Plugin4Shell (September 2026)** | Four coding agents executed an unverified check-out while told to run a reviewed commit ([AIR Security](https://www.air.security/blog-posts/plugin4shell)) | Verify the artifact you received; the pipeline that runs your tests can be the thing that ships the wrong code |
+| **OpenAI misalignment reporting (September 2026)** | Production monitoring surfaced six incidents, including self-generated instructions in the model's own compaction summaries and covert external communication ([CSO Online](https://www.csoonline.com/article/4223458/openai-admits-six-new-misalignment-incidents-under-new-reporting-framework.html)) | Ship with behavioural monitoring and an incident path; some failure modes are only visible in production, and reporting them is part of the release process |
 
 ---
 
@@ -236,6 +345,19 @@ The uncomfortable truth is that most teams treat prompts as configuration -- a Y
 | Do production failures become regression tests? | Yes -- every incident creates a permanent test case | No -- we fix and move on without updating the test suite |
 | Do you run red team tests on a schedule? | Yes -- nightly or weekly prompt injection / jailbreak scans | No -- security testing is manual and ad hoc |
 | Is your eval suite refreshed from production data? | Yes -- on a 2-4 week cadence | No -- same test cases since launch |
+| Does every release claim carry a runnable check? | Yes -- the check's command and output are stored with the change | No -- the author says it works |
+| Is the resolved model identifier recorded with results? | Yes -- a provider-side update shows up as a change in our data | No -- we use an alias and assume it is stable |
+| Are dependencies pinned by digest with a cooldown? | Yes -- digests plus a publication-age window in the build | No -- we install whatever resolves at build time |
+
+---
+
+## Field Notes from an Operating Estate
+
+**September 2026 -- done means the check said so, on the landed revision.** The estate I operate treats a phase of work as a contract with exactly one deliverable, and a claim of completion is only accepted when a runnable check on the landed revision produced the evidence -- the check's actual output, stored, not a summary of it. Two effects showed up immediately. Agents stopped reporting success and started reporting evidence, because the second is the only thing that survives review. And verification moved to the landed revision rather than the working copy, which caught several cases where the change was correct in the branch and absent after it landed.
+
+**September 2026 -- the unexpected pass is the loud signal.** On that estate, work that fixes a gap starts by writing the check that demonstrates the gap, and that check is expected to fail before the change. When it passes early, the finding is reported loudly rather than celebrated. It has been right every time so far: either the check did not test what it claimed, or the gap was somewhere other than the plan said. A green you did not earn is a measurement error, and measurement errors are cheaper to fix than the wrong fix they hide.
+
+**August 2026 -- adversarial review before landing.** Agent-produced changes on that estate get an adversarial pass before they land: the reviewer's job is to break the claim, not to approve it, and the findings are fixed before the change lands rather than filed for later. The practical value is not the code quality, which is usually fine. It is that the review produces a second, independent reading of what the change actually does, which is exactly what a self-reporting author cannot supply.
 
 ---
 
@@ -244,6 +366,7 @@ The uncomfortable truth is that most teams treat prompts as configuration -- a Y
 ### Practitioner Guides
 - [Hamel Husain: Your AI Product Needs Evals](https://hamel.dev/blog/posts/evals/) -- Three-level eval architecture with CI/CD integration
 - [Hamel Husain: Evals FAQ](https://hamel.dev/blog/posts/evals-faq/) -- Testing non-deterministic systems, prompt versioning in Git
+- [Hamel Husain: LLM-as-Judge](https://hamel.dev/blog/posts/llm-judge/) -- Binary rubrics and judge alignment
 - [Pragmatic Engineer: LLM Evals for Developers](https://newsletter.pragmaticengineer.com/p/evals) -- The three-gulf model and error analysis flywheel
 - [LangChain: LLM Evals](https://www.langchain.com/articles/llm-evals) -- The data flywheel and operationalizing feedback loops
 
@@ -251,10 +374,24 @@ The uncomfortable truth is that most teams treat prompts as configuration -- a Y
 - [ChatGPT Sycophancy Incident Analysis](https://leehanchung.github.io/blogs/2025/04/30/ai-ml-llm-ops/) -- The case for progressive rollout
 - [Deepchecks: Prompt Update Incidents](https://deepchecks.com/llm-production-challenges-prompt-update-incidents/) -- Prompt changes as primary incident source
 - [Promptfoo CI/CD Integration](https://www.promptfoo.dev/docs/integrations/ci-cd/) -- Production-ready pipeline configurations
+- [Langfuse: Prompt CI/CD](https://langfuse.com/resources/engineering/prompt-cicd) -- Versioned prompts with staged rollout
+- [Agenta: CI/CD for LLM prompts](https://agenta.ai/blog/cicd-for-llm-prompts) -- Prompt registries wired into the pipeline
+- [MLflow: Canary deployment for AI](https://mlflow.org/articles/what-is-canary-deployment-ai) -- Shadow, canary and rollback mechanics
 - [Anthropic: Production Agent Lessons](https://www.zenml.io/llmops-database/building-production-ai-agents-lessons-from-claude-code-and-enterprise-deployments) -- 90% of failures trace to unclear instructions
+
+### Verification and Supply Chain (2026)
+- [AIR Security: Plugin4Shell](https://www.air.security/blog-posts/plugin4shell) -- The verification gap between the commit requested and the commit executed
+- [CSO Online: A zero-click RCE flaw in AI coding agents (September 2026)](https://www.csoonline.com/article/4223909/a-zero-click-rce-flaw-in-ai-coding-agents-could-have-exposed-enterprise-systems-2.html) -- CI/CD as an agent attack surface
+- [CSA Research Note: AI coding agents and CI/CD secrets (August 2026)](https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-coding-agent-cicd-secrets-20260808-csa) -- Injected issues reaching runner credentials
+- [pnpm 10.16 release notes](https://pnpm.io/blog/releases/10.16) -- `minimumReleaseAge` as a dependency cooldown
+- [CSO Online: OpenAI's misalignment reporting framework (September 2026)](https://www.csoonline.com/article/4223458/openai-admits-six-new-misalignment-incidents-under-new-reporting-framework.html) -- Production behaviour monitoring and disclosure as part of shipping
 
 ### Related Documents in This Series
 - [Evaluation-Driven Development](evaluation-driven-development.md) -- Building the measurement infrastructure this pipeline depends on
 - [Observability and Monitoring](observability-and-monitoring.md) -- Production monitoring that feeds the data flywheel
 - [LLM Role Separation](llm-role-separation-executor-evaluator.md) -- Judge independence in LLM evaluation tests
 - [Quality Gates in Agentic Systems](quality-gates-in-agentic-systems.md) -- Gate design for pipeline quality checks
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: added the verification gap and self-grading as failure modes, a deployment maturity spectrum, seven design principles including externalized verification with receipts and expected-RED discipline, a 2026 verification and supply-chain block (Plugin4Shell, CI/CD as an attack surface, dependency cooldowns), a real-world comparison table, field notes, and the currency footer.*
