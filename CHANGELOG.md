@@ -27,8 +27,8 @@ documents were added for subjects that did not have one.
   every unenforceable standard is recorded as a gap rather than asserted.
 - **A currency footer on every document.** Each one now ends with the date it
   was last reviewed and a one-line list of what changed.
-- **A "Field Notes from an Operating Estate" section on every document.** Two
-  or three short first-person observations, dated by month, from operating
+- **A "Field Notes from an Operating Estate" section on every document.** One
+  to three short first-person observations, dated by month, from operating
   agents against these APIs daily. Each is abstracted to the pattern; no
   internal system, path, or person is named.
 - This changelog.

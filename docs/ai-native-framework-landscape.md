@@ -229,10 +229,10 @@ Proxy layers that abstract provider differences, add cost tracking, and handle r
 
 | Tool | Stars | What It Does | When to Use |
 |---|---|---|---|
-| **[LiteLLM](https://github.com/BerriAI/litellm)** | 40K | Unified OpenAI-compatible interface to 100+ LLM providers. Python SDK and proxy server. Cost tracking, load balancing, guardrails. Used by Stripe, Netflix, OpenAI Agents SDK. 8ms P95 at 1K RPS. | Drop-in multi-provider routing. The industry standard for provider abstraction. |
+| **[LiteLLM](https://github.com/BerriAI/litellm)** | 40K | Unified OpenAI-compatible interface to 100+ LLM providers. Python SDK and proxy server. Cost tracking, load balancing, guardrails. Used by Stripe, Netflix, OpenAI Agents SDK. | Drop-in multi-provider routing. The industry standard for provider abstraction. |
 | **[Portkey](https://github.com/Portkey-AI/gateway)** | Acquired 2026 | AI gateway with 250+ LLMs, 50+ built-in guardrails, semantic caching. | Enterprise gateway where security guardrails and governance are first-class requirements. See the churn table before a fresh commitment. |
 
-**Known limitation (LiteLLM):** Python GIL bottleneck under very high concurrency; logging layer degrades past 1M logs; enterprise features (SSO, RBAC, team budgets) require paid license. A Rust rewrite was announced in June 2026 to address the concurrency ceiling; until it ships as the default, treat the GIL as a real limit at very high request rates.
+**Known limitation (LiteLLM):** Python GIL bottleneck under very high concurrency; enterprise features (SSO, RBAC, team budgets) require paid license. A Rust rewrite was announced in June 2026 to address the concurrency ceiling; until it ships as the default, treat the GIL as a real limit at very high request rates.
 
 ### Layer 4: Structured Output
 
@@ -313,7 +313,7 @@ The most under-invested layer in most AI applications, and arguably the most imp
 
 | Tool | Stars/Signal | What It Does | When to Use |
 |---|---|---|---|
-| **[Langfuse](https://github.com/langfuse/langfuse)** | Part of ClickHouse | Open-source LLM engineering platform: tracing, prompt management, evaluations, datasets. MIT-licensed. Self-hostable. Integrates with OpenTelemetry, LangChain, OpenAI SDK, LiteLLM. #1 most-starred open-source LLMOps tool. | Teams wanting open-source, self-hosted observability. Avoiding vendor lock-in. Budget-conscious teams (50K observations/month free). |
+| **[Langfuse](https://github.com/langfuse/langfuse)** | Part of ClickHouse | Open-source LLM engineering platform: tracing, prompt management, evaluations, datasets. MIT-licensed. Self-hostable. Integrates with OpenTelemetry, LangChain, OpenAI SDK, LiteLLM. #1 most-starred open-source LLMOps tool. | Teams wanting open-source, self-hosted observability. Avoiding vendor lock-in. Budget-conscious teams. |
 | **[LangSmith](https://www.langchain.com/langsmith)** | Commercial | The first-party platform for LangChain and LangGraph: tracing, evals, prompt versioning, and deployment. Tightest integration with the LangChain stack by construction. | Teams already committed to LangChain or LangGraph. Weakest fit if you are deliberately framework-independent -- it pulls observability back inside the framework. |
 | **[Braintrust](https://www.braintrust.dev/)** | $80M Series B (Feb 2026) | AI observability platform integrating eval into the development workflow. Experiment tracking, side-by-side comparison, regression detection in CI, production monitoring. Custom scoring (LLM-judge, code, human). Used by Notion, Stripe, Vercel, Replit. | End-to-end commercial eval + observability. Teams that want a single platform for experimentation through production. The funding round is a durability signal: a managed option unlikely to disappear. |
 | **[Arize Phoenix](https://github.com/Arize-ai/phoenix)** | 9K stars | Open-source AI observability accepting traces via standard OTLP (OpenTelemetry). Tracing, LLM-as-judge eval, dataset management, experiment tracking. Runs locally or in cloud. 25+ framework integrations. | Teams already using OpenTelemetry. Local-first eval and experimentation (runs in Jupyter notebooks). Caveat: the Dynatrace acquisition leaves Phoenix's long-term support open -- see the churn table. |
@@ -532,4 +532,4 @@ Two observations from a practitioner operating an estate of roughly a dozen agen
 
 ---
 
-*Last reviewed: September 2026. Changed in this revision: added a churn table of the 2026 acquisitions, mergers, and shutdowns; corrected superseded frameworks, versions, and star counts; added the new entrants; recounted the products mapped across the seven layers; removed a duplicated reuse-before-invention field note; added the framework-adoption spectrum; and cut the uncited download counts along with the uncited funding and throughput figures the review named, keeping the three funding figures a primary or attributed source states (ClickHouse, Sacra, Digital Applied).*
+*Last reviewed: September 2026. Changed in this revision: added a churn table of the 2026 acquisitions, mergers, and shutdowns; corrected superseded frameworks, versions, and star counts; added the new entrants; recounted the products mapped across the seven layers; removed a duplicated reuse-before-invention field note; added the framework-adoption spectrum; and removed uncited funding, download, latency and throughput figures that had no source behind them, keeping the three funding figures a primary or attributed source states (ClickHouse, Sacra, Digital Applied).*
