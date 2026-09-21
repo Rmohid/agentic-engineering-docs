@@ -194,7 +194,7 @@ These are the recurring mistakes that burn teams building their first LLM applic
 
 **Why it happens:** "Use the best model" feels safe. Testing with the frontier model first is reasonable during exploration. The failure is never testing whether a cheaper model works just as well.
 
-**Example:** A document classification pipeline running Claude Opus 5 at $5.00/M input tokens when Claude Haiku 4.5 at $1.00/M achieves identical accuracy on that task. At 10M documents/month, that is $40,000/month wasted. As [Huyench Chip documents](https://huyenchip.com/2023/04/11/llm-engineering.html), a fine-tuned 7B parameter model trained on outputs from a larger model can match the teacher for under $600 total.
+**Example:** A document classification pipeline running Claude Opus 5 at $5.00/M input tokens when Claude Haiku 4.5 at $1.00/M achieves identical accuracy on that task. At 10M documents/month, that is $40,000/month wasted. As [Chip Huyen documents](https://huyenchip.com/2023/04/11/llm-engineering.html), a fine-tuned 7B parameter model trained on outputs from a larger model can match the teacher for under $600 total.
 
 ### Failure 4: Believing temperature=0 is deterministic
 
@@ -439,7 +439,7 @@ graph TD
 |---|---|---|---|---|---|
 | Frontier | Claude Opus 5 / Fable 5.1 | GPT-6 Astra / GPT-5.6 Sol | Gemini 3.1 Pro | $2-10 | Complex reasoning, multi-step analysis, novel problems |
 | Balanced | Claude Sonnet 5 | GPT-5.6 Terra | Gemini 3.8 Flash | $0.75-2 | Most production tasks: summarization, coding, Q&A |
-| Fast | Claude Haiku 4.5 | GPT-5.6 Luna | Gemini 3.1 Flash-Lite | $0.20-1 | Classification, extraction, formatting, high-volume |
+| Fast | Claude Haiku 4.5 | GPT-5.6 Luna | Gemini 3.5 Flash-Lite | $0.20-1 | Classification, extraction, formatting, high-volume |
 
 ### How to choose
 
@@ -460,9 +460,9 @@ Processing 1 million documents of ~2,000 input tokens each, generating ~500 outp
 
 | Tier | Model | Input Cost | Output Cost | Total |
 |---|---|---|---|---|
-| Fast | Claude Haiku 4.5 | $2.00 | $2.50 | **$4.50** |
-| Balanced | Claude Sonnet 5 | $4.00 | $5.00 | **$9.00** |
-| Frontier | Claude Opus 5 | $10.00 | $12.50 | **$22.50** |
+| Fast | Claude Haiku 4.5 | $2,000 | $2,500 | **$4,500** |
+| Balanced | Claude Sonnet 5 | $4,000 | $5,000 | **$9,000** |
+| Frontier | Claude Opus 5 | $10,000 | $12,500 | **$22,500** |
 
 The frontier tier costs 5x the fast tier. If Haiku produces 95% accuracy on your classification task and Opus produces 97%, that 2% improvement costs an additional $18,000 per million documents. Sometimes that is worth it. Usually it is not.
 
@@ -485,7 +485,7 @@ The frontier tier costs 5x the fast tier. If Haiku produces 95% accuracy on your
 | GPT-5.6 Sol | $4.00 | $20.00 | 1.05M | $0.40 |
 | GPT-6 Astra | $10.00 | $50.00 | 1.05M | $1.00 |
 | **Google** | | | | |
-| Gemini 3.1 Flash-Lite | $0.25 | $1.50 | 1M | $0.025 |
+| Gemini 3.5 Flash-Lite | $0.30 | $2.50 | 1M | $0.03 |
 | Gemini 3.8 Flash | $0.75 | $3.75 | 1M | $0.075 |
 | Gemini 3.1 Pro | $2.00 | $12.00 | 1M | $0.20 |
 
@@ -603,7 +603,7 @@ This document covers the machine. The next step is learning to use it effectivel
 - [Simon Willison, "Think of language models like a calculator for words"](https://simonwillison.net/2023/Apr/2/calculator-for-words/) -- The best practitioner analogy for what LLMs are and are not
 - [Simon Willison, "Training is not the same as chatting"](https://simonwillison.net/2024/May/29/training-not-chatting/) -- Why each API call is stateless and the model does not learn from conversations
 - [Simon Willison, "When ChatGPT lies"](https://simonwillison.net/2023/Apr/7/chatgpt-lies/) -- Why "lies" communicates risk more effectively than "hallucinate"
-- [Huyench Chip, "Building LLM applications for production"](https://huyenchip.com/2023/04/11/llm-engineering.html) -- Cost pitfalls, fine-tuning vs prompting crossover, prompt engineering in production
+- [Chip Huyen, "Building LLM applications for production"](https://huyenchip.com/2023/04/11/llm-engineering.html) -- Cost pitfalls, fine-tuning vs prompting crossover, prompt engineering in production
 - [Glen Rhodes, "LLMs write plausible code, not correct code"](https://glenrhodes.com/llms-write-plausible-code-not-correct-code-and-what-that-distinction-means-for-engineers-in-production/) -- The distinction between code that compiles and code that works
 - [Daniel Miessler, "World model + next token prediction = answer prediction"](https://danielmiessler.com/blog/world-model-next-token-prediction-answer-prediction) -- Why next-token prediction is not a limitation
 - [Latent Space, "Adversarial reasoning"](https://www.latent.space/p/adversarial-reasoning) -- Why LLMs have word models, not world models
@@ -633,4 +633,4 @@ This document covers the machine. The next step is learning to use it effectivel
 
 ---
 
-*Last reviewed: September 2026. Changed in this revision: current model lineup and prices across all three providers (Claude Opus 5 / Sonnet 5 / Haiku 4.5 / Fable 5.1; GPT-5.6 Sol / Terra / Luna and GPT-6 Astra; Gemini 3.1 Pro, 3.8 Flash, 3.1 Flash-Lite), the OpenAI example moved from Chat Completions to the Responses API, the context-window table replaced, long-context surcharges and thinking-token billing added, and the context-rot measurements folded into the lost-in-the-middle discussion.*
+*Last reviewed: September 2026. Changed in this revision: current model lineup and prices across all three providers (Claude Opus 5 / Sonnet 5 / Haiku 4.5 / Fable 5.1; GPT-5.6 Sol / Terra / Luna and GPT-6 Astra; Gemini 3.1 Pro, 3.8 Flash, 3.5 Flash-Lite), the OpenAI example moved from Chat Completions to the Responses API, the context-window table replaced, long-context surcharges and thinking-token billing added, and the context-rot measurements folded into the lost-in-the-middle discussion. This pass corrected the Flash-Lite entry to the current Google SKU (Gemini 3.5 Flash-Lite at $0.30/$2.50, replacing the superseded 3.1 at $0.25/$1.50) and restated the cost-comparison table on the one-million-document basis its own header names, and corrected the author name on the Chip Huyen reference.*

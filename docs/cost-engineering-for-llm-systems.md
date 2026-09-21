@@ -205,7 +205,7 @@ For Anthropic models, use their token counting API endpoint or `anthropic.count_
 
 ### Principle 2: Route by Complexity, Not by Default
 
-**Why it works:** The router pattern, as documented in [AI-Native Solution Patterns](docs/ai-native-solution-patterns.md), uses an initial classification step to direct inputs to specialized handlers. When applied as a cost lever, a single routing decision -- "is this task simple or complex?" -- can cut costs by 50-70%. The cost differential between model tiers is not marginal: it is 10-50x.
+**Why it works:** The router pattern, as documented in [AI-Native Solution Patterns](ai-native-solution-patterns.md), uses an initial classification step to direct inputs to specialized handlers. When applied as a cost lever, a single routing decision -- "is this task simple or complex?" -- can cut costs by 50-70%. The cost differential between model tiers is not marginal: it is 10-50x.
 
 | Tier | Models | Input / MTok | Output / MTok | Use For |
 |---|---|---|---|---|
@@ -518,8 +518,6 @@ quadrantChart
 
 ## Field Notes from an Operating Estate
 
-- **September 2026 -- the money brake was dead and every part of it looked correct.** An unattended nightly batch job had an in-run spend stop-condition: read the provider's usage figure, subtract the value recorded at run start, stop when the delta reached the night's allowance. It was wired, configured, and reported in every run summary. On the measured run, the windowed usage figure fell by 149.89 during the job while the money actually spent -- read from the remaining-credit field on the *same* API response -- was 0.109. The delta was therefore negative from the first re-read and could never reach the allowance. The brake had never fired, and the only working control was the pre-run arithmetic that decides once, at the start. Two fields on one payload disagreed about which one carried the spend. The fix was to brake on the remaining-credit field, which only falls, and to treat "is this counter monotonic inside the accounting period?" as a required review question for every budget check.
-
 - **July 2026 -- a per-token price cap did not bound the bill.** An operator set a hard per-token price ceiling on a routing layer, expecting it to bound spending. It bounds the *rate* per token, not dollars per call: a long-enough answer at an allowed rate is still an expensive call, and an output-token bound is required alongside the price cap. A second surprise followed: a cap set to a model's cheapest *listed* endpoint failed outright, because the router did not serve from that endpoint. The meter you read must be the endpoint that is actually served.
 
 - **July 2026 -- a cost-only router selected the free tier and stalled.** With a low price ceiling in place, $0/$0 models satisfy the cap by definition, and a price-sorted router preferred them. Under load the free models were rate-limited, so the routing layer stalled rather than spending. The fix was to route on a quality floor -- a minimum score -- with the price cap kept as the guardrail underneath, rather than sorting by price. Cost-first routing and quality-first routing produce the same bill on paper and very different systems in practice.
@@ -626,9 +624,9 @@ The most expensive LLM system is the one nobody measured.
 
 ### Related Documents in This Series
 
-- [AI-Native Solution Patterns](docs/ai-native-solution-patterns.md) -- The router pattern as an architectural cost lever; seven patterns ordered by increasing complexity and cost
-- [LLM Fundamentals for Practitioners](docs/llm-fundamentals-for-practitioners.md) -- Token mechanics, model tier pricing, and the 50-70% savings from a single routing decision
+- [AI-Native Solution Patterns](ai-native-solution-patterns.md) -- The router pattern as an architectural cost lever; seven patterns ordered by increasing complexity and cost
+- [LLM Fundamentals for Practitioners](llm-fundamentals-for-practitioners.md) -- Token mechanics, model tier pricing, and the 50-70% savings from a single routing decision
 
 ---
 
-*Last reviewed: September 2026. Changed in this revision: every price, model name and cached-input rate corrected against September 2026 price lists (the March 2026 table listed GPT-4.1, GPT-5, o3, Sonnet 4.6, Opus 4.6 and Gemini 2.5 as current); OpenAI's cached-input discount corrected from a flat 50% to 90% on current flagship tiers; added Failure 7 (the dead brake), the 2026 agentic token-consumption measurements, and field notes from an operating estate.*
+*Last reviewed: September 2026. Changed in this revision: every price, model name and cached-input rate corrected against September 2026 price lists (the March 2026 table listed GPT-4.1, GPT-5, o3, Sonnet 4.6, Opus 4.6 and Gemini 2.5 as current); OpenAI's cached-input discount corrected from a flat 50% to 90% on current flagship tiers; added Failure 7 (the dead brake), the 2026 agentic token-consumption measurements, and field notes from an operating estate; relative links to the companion documents in this series corrected to the bare filenames GitHub resolves, and the field note on the dead spending brake that duplicated Unattended Agent Operations was removed (that incident is told in full in [Unattended Agent Operations](unattended-agent-operations.md)).*
