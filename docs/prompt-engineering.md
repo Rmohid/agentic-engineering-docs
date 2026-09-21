@@ -584,7 +584,7 @@ The three providers' prompting guides have converged on structure and diverged o
 
 ## Field Notes from an Operating Estate
 
-Two observations from writing instructions that agents actually have to follow.
+One observation from writing instructions that agents actually have to follow.
 
 **An instruction that names a trade-off without resolving it will be read the cheap way (July 2026).** A rule I wrote for my own agent instructions said that clarity mattered more than concision. The agents read it as a standing licence to write long, and produced exactly what the rule existed to prevent: messages that were over long, carried information irrelevant to the decision in front of the reader, and used abbreviations the reader had to look up. The defect was structural -- the rule argued against itself by naming a length axis it did not resolve. I deleted the axis and replaced it with one test: can the reader act from this message alone? Padding, shorthand, and batched questions all fail that test, and none of them can hide behind clarity. The generalisation is what stuck: when two goals compete in an instruction, resolve the competition or the writer picks for you.
 

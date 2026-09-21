@@ -230,7 +230,7 @@ Proxy layers that abstract provider differences, add cost tracking, and handle r
 | Tool | Stars | What It Does | When to Use |
 |---|---|---|---|
 | **[LiteLLM](https://github.com/BerriAI/litellm)** | 40K | Unified OpenAI-compatible interface to 100+ LLM providers. Python SDK and proxy server. Cost tracking, load balancing, guardrails. Used by Stripe, Netflix, OpenAI Agents SDK. 8ms P95 at 1K RPS. | Drop-in multi-provider routing. The industry standard for provider abstraction. |
-| **[Portkey](https://github.com/Portkey-AI/gateway)** | Acquired 2026 | AI gateway with sub-1ms latency, 122KB footprint. 250+ LLMs, 50+ built-in guardrails, semantic caching, 10B+ tokens/day. | Enterprise gateway where security guardrails and governance are first-class requirements. See the churn table before a fresh commitment. |
+| **[Portkey](https://github.com/Portkey-AI/gateway)** | Acquired 2026 | AI gateway with 250+ LLMs, 50+ built-in guardrails, semantic caching. | Enterprise gateway where security guardrails and governance are first-class requirements. See the churn table before a fresh commitment. |
 
 **Known limitation (LiteLLM):** Python GIL bottleneck under very high concurrency; logging layer degrades past 1M logs; enterprise features (SSO, RBAC, team budgets) require paid license. A Rust rewrite was announced in June 2026 to address the concurrency ceiling; until it ships as the default, treat the GIL as a real limit at very high request rates.
 
@@ -532,4 +532,4 @@ Two observations from a practitioner operating an estate of roughly a dozen agen
 
 ---
 
-*Last reviewed: September 2026. Changed in this revision: added a churn table of the 2026 acquisitions, mergers, and shutdowns; corrected superseded frameworks, versions, and star counts; added the new entrants; recounted the products mapped across the seven layers; removed a duplicated reuse-before-invention field note; added the framework-adoption spectrum; and cut every funding, throughput and download figure whose source did not carry it, keeping only the two a primary or attributed source states.*
+*Last reviewed: September 2026. Changed in this revision: added a churn table of the 2026 acquisitions, mergers, and shutdowns; corrected superseded frameworks, versions, and star counts; added the new entrants; recounted the products mapped across the seven layers; removed a duplicated reuse-before-invention field note; added the framework-adoption spectrum; and cut the uncited download counts along with the uncited funding and throughput figures the review named, keeping the three funding figures a primary or attributed source states (ClickHouse, Sacra, Digital Applied).*
