@@ -11,7 +11,7 @@
 | "A skill is a long prompt you saved to a file." | A skill's first job is to be *found*, not read. Only `name` and `description` are required, and they are the only two fields the agent sees at selection time ([Agent Skills specification](https://agentskills.io/specification)). |
 | "Bigger instruction files mean better compliance." | In the only controlled factorial study of the question, file size from 25 to 500 lines produced **no detectable effect** on instruction compliance across 1,650 sessions (the size null carries an affirmative-null Bayes factor of 0.05–0.10). The largest effect measured was *within* a session: each additional function the agent generated lowered the odds of compliance by roughly 5.6% ([McMillan, 2026](https://arxiv.org/abs/2605.10039)). |
 | "Write the skill and the agent will use it." | Force-loading curated skills scored 55.4%; letting the agent choose from the same set dropped to 51.2%; distractors dropped it to 43.5%. Only 49% of trajectories loaded all available curated skills, falling to 31% with distractors and 16% with none in the pool ([Skill-Usage, 2026](https://arxiv.org/abs/2604.04323)). |
-| "Let the agent write its own skills — it knows what worked." | Self-generated skills averaged **−1.3 percentage points** against a no-skill baseline; human-curated skills averaged **+16.2** ([SkillsBench, 2026](https://arxiv.org/abs/2602.12670)). |
+| "Let the agent write its own skills — it knows what worked." | Self-generated skills landed *below* the no-skill baseline on all three configurations tested (**−8.1 to −11.5 percentage points**); human-curated skills averaged **+16.6** across 18 configurations ([SkillsBench, 2026, rev. 14 June 2026](https://arxiv.org/abs/2602.12670)). |
 | "A skill library only grows. More coverage is more capability." | Unbounded accumulation without retirement is a named failure mode — *library drift* — degrading retrieval and stagnating performance. The mirror error is measured too: premature retirement *harmed* performance ([Library Drift, 2026](https://arxiv.org/abs/2605.19576)). |
 | "Once a skill is correct, it stays correct." | Skills decay as the services, packages, and APIs they reference move. Drift is role-dependent — a version string in a comment is noise, the same string in a pinned dependency is an obligation — and contract-free monitoring produced 40% false positives ([Skill Drift, 2026](https://arxiv.org/abs/2605.10990)). |
 | "Skills, tools, and subagents are variations on the same thing." | Three context devices: tools carry *connectivity* and cost context permanently; skills carry *procedure* and cost nothing until matched; subagents carry *isolation* and return only a summary ([Skills explained, 2026](https://claude.com/blog/skills-explained)). |
@@ -39,7 +39,7 @@ Memory is at least two things, not one.
 1. **A procedure has a trigger, not a topic.** "Use when the deploy pipeline reports a stale lock" is a trigger. "Deployment notes" is a topic, and it will not fire.
 2. **A procedure has order.** Step 4 before step 3 is a bug, not a style choice. A compressor that summarizes a procedure destroys it, because the compression is lossy exactly where the meaning lives — hence the specification's hard budget on the body.
 3. **A procedure has a validity window.** A fact is stale when the world changes observably; a procedure is stale when an assumption inside it silently stops holding. It was correct when written, is wrong now, and nothing raises an error (Failure 2).
-4. **A procedure cannot be reliably self-authored.** The shortcut — let the agent write down what worked — is measured, and it does not work: self-generated skills returned −1.3 percentage points against a no-skill baseline while curated ones returned +16.2. The trajectory analysis names the two failure shapes: models identify *that* domain knowledge is needed but generate imprecise procedures ("use pandas for data processing", with no API pattern), and on high-domain-knowledge tasks they fail to recognise the need for a specialized procedure at all ([SkillsBench, 2026](https://arxiv.org/abs/2602.12670)).
+4. **A procedure cannot be reliably self-authored.** The shortcut — let the agent write down what worked — is measured, and it does not work: self-generated skills fell below the no-skill baseline on all three configurations tested (−8.1 to −11.5 percentage points) while curated ones returned +16.6 on average. The trajectory audit attributes the deficit to generated packs the solver never discovers, creator-side authoring that displaces solver work, and confidently wrong pack content when the packs are used ([SkillsBench, 2026, rev. 14 June 2026](https://arxiv.org/abs/2602.12670)).
 
 Point four is the one practitioners resist: an agent that just solved a problem appears to know how it solved it. It does not know how to write the procedure that would let a *fresh* session solve it — one with no memory of the dead ends, or of the approaches that looked right and were not. Human curation is the only measured source of working procedural knowledge.
 
@@ -91,7 +91,7 @@ The procedure was correct when written and is wrong now, because something it re
 
 ### Failure 3: The Contradicting Pair
 
-Two skills disagree, and the agent that loads both follows whichever it read last. The measured version is the negative delta: 16 of 84 benchmark tasks performed *worse* with curated skills than without, one by 39.3 points, which the paper reads as skills introducing "conflicting guidance or unnecessary complexity for tasks models already handle well" ([SkillsBench, 2026](https://arxiv.org/abs/2602.12670)). The same smell appears in configuration files as *Conflicting Instructions*, co-occurring with context bloat to raise its likelihood by 83% ([Configuration Smells, 2026](https://arxiv.org/abs/2606.15828)). **Fix:** one owner per procedure.
+Two skills disagree, and the agent that loads both follows whichever it read last. The measured version is the negative delta: 13 of 87 benchmark tasks performed *worse* with curated skills than without, the largest drop by 7.4 points, which the paper attributes to a skill prescribing "an unnecessarily heavyweight pipeline", displacing a stronger default strategy, or pointing the agent at a solver it cannot debug ([SkillsBench, 2026, rev. 14 June 2026](https://arxiv.org/abs/2602.12670)). The same smell appears in configuration files as *Conflicting Instructions*, co-occurring with context bloat to raise its likelihood by 83% ([Configuration Smells, 2026](https://arxiv.org/abs/2606.15828)). **Fix:** one owner per procedure.
 
 ### Failure 4: The Workaround That Outlived Its Bug
 
@@ -215,13 +215,11 @@ The pattern is consistent: **the format converged, and the lifecycle did not.** 
 
 ## Field Notes from an Operating Estate
 
-Three dated observations from an estate running a governed skill library across three libraries.
+Two dated observations from an estate running a governed skill library across three libraries.
 
 **August 2026 — routing edges rot silently.** A check was written to walk every routing edge in the collection and ask whether its target existed. The first run found 219 edges, 44 of them crossing from one library into another, and **8 that resolved to nothing at all**. No agent had reported a problem. An agent routed to a skill that is not there does not fail loudly; it proceeds without the procedure, which is indistinguishable from a task that needed no procedure. A routing graph is a dependency graph, and an unverified dependency graph is already broken somewhere.
 
 **August 2026 — an admission gate buys less than it looks like it buys.** The same estate made skill files uncommittable unless a run record rode the same change and cited a live intent node. After months of operation the honest reading is that the gate proves a record was committed, never that the work it describes happened. Its value is narrower and real: ungoverned growth becomes uncommittable, and a fabricated citation resolves to nothing, so it cannot be written at all. The gate's own documentation states the ceiling rather than hiding it.
-
-**July 2026 — an instruction that inverted its own intent.** One standing instruction told agents that clarity mattered more than concision. The agents it governed read it as a standing licence to write long, and produced exactly what the instruction existed to prevent; the operator's complaint was that output ran long, carried material irrelevant to the decision at hand, and was dense with abbreviations that had to be looked up. The defect was structural rather than a wording slip — the instruction supplied the licence it was arguing against. The fix removed the length axis entirely and replaced it with one test: can the reader act from this message alone? A procedure can encode the same self-contradiction, and no amount of correct formatting will rescue it.
 
 ## Recommendations
 
@@ -235,9 +233,9 @@ Three dated observations from an estate running a governed skill library across 
 
 The measured evidence is not encouraging: **skills are a strong idea with a fragile implementation, and most of the fragility is organisational rather than technical.**
 
-Curated skills return +16.2 percentage points on average, and it degrades to nothing as the setting becomes realistic. Every degradation is a selection failure: the agent could not tell which skill was worth loading, or the retrieved content was noisy, or the right skill was lost among 80,000 others. The agent cannot write its own skills, ecosystem quality averages half a curated benchmark set's, and 91 of 100 surveyed repositories carry a configuration smell.
+Curated skills return +16.6 percentage points on average, and every one of the 18 configurations tested improved, by +4.1 to +25.7 points. Every degradation is a selection failure: the agent could not tell which skill was worth loading, or the retrieved content was noisy, or the right skill was lost among 80,000 others. The agent cannot write its own skills, ecosystem quality averages half a curated benchmark set's, and 91 of 100 surveyed repositories carry a configuration smell.
 
-The uncomfortable conclusion is that a skill library is not a knowledge asset. It is a *retrieval system with a maintenance cost*: quality is set by the precision of its index and the discipline of its pruning, not the volume of its contents. Teams that accumulate documents get a library that grows while capability stays flat; teams that run a governed pipeline — trigger-tested on entry, evidence-bound per use, retired on measured contribution — get the +16.2 points, and keep them.
+The uncomfortable conclusion is that a skill library is not a knowledge asset. It is a *retrieval system with a maintenance cost*: quality is set by the precision of its index and the discipline of its pruning, not the volume of its contents. Teams that accumulate documents get a library that grows while capability stays flat; teams that run a governed pipeline — trigger-tested on entry, evidence-bound per use, retired on measured contribution — get the +16.6 points, and keep them.
 
 One correction is worth carrying. The folk wisdom that long instruction files destroy compliance did not survive controlled measurement: file size from 25 to 500 lines showed no detectable effect on adherence. What decayed was compliance *within* a session, non-monotonically, by roughly 5.6% per additional generated function — an effect identified during analysis rather than pre-specified. If that replicates, the lever is fresh context and short sessions, which argues for skills as a context-freshening device and not merely a context-saving one.
 
@@ -267,7 +265,7 @@ One correction is worth carrying. The folk wisdom that long instruction files de
 
 ### Research
 
-- [SkillsBench](https://arxiv.org/abs/2602.12670) — 84 tasks, 7,308 trajectories; +16.2pp curated, −1.3pp self-generated, 2–3 skills optimal, comprehensive −2.9pp.
+- [SkillsBench](https://arxiv.org/abs/2602.12670) — rev. 14 June 2026: 87 tasks across 8 domains, 18 model–harness configurations; +16.6pp curated (33.9% to 50.5%), self-generated 8.1–11.5pp *below* the no-skill baseline, 2–3 skills optimal (+19.0pp), comprehensive documentation +0.7pp.
 - [How Well Do Agentic Skills Work in the Wild](https://arxiv.org/abs/2604.04323) — the selection and retrieval degradation ladder.
 - [SkillRouter](https://arxiv.org/abs/2603.22455) — metadata-only versus body-aware routing on ~80,000 skills.
 - [Library Drift](https://arxiv.org/abs/2605.19576) — the drift failure mode, its ablations, and the governance recipe.
@@ -284,8 +282,8 @@ One correction is worth carrying. The folk wisdom that long instruction files de
 - [Tool Design for LLM Agents](tool-design-for-llm-agents.md) — why tool schemas cost context permanently.
 - [File-Based Memory for AI Systems](file-based-memory-for-ai-systems.md) — the declarative sibling of this problem.
 - [Quality Gates in Agentic Systems](quality-gates-in-agentic-systems.md) — the gate design used by admission and retirement.
-- [Self-Improving Systems](self-improving-systems.md) — what the −1.3pp self-generation result bounds.
+- [Self-Improving Systems](self-improving-systems.md) — what the self-generation deficit bounds.
 
 ---
 
-*Last reviewed: September 2026. Changed in this revision: new document — skills as selectable, evidence-bound procedures; measured degradation of skill utility under realistic selection; admission, evidence, and outcome-driven retirement. Length note: 5,085 prose words against the 3,000–5,000 target — the required Field Notes section was added after the target was set.*
+*Last reviewed: September 2026. Changed in this revision: new document — skills as selectable, evidence-bound procedures; measured degradation of skill utility under realistic selection; admission, evidence, and outcome-driven retirement; SkillsBench figures re-read against the revision of 14 June 2026 (87 tasks, +16.6pp curated, self-generated 8.1–11.5pp below baseline), the earlier figure having come from a superseded version; the July 2026 field note on an instruction that inverted its own intent removed as a duplicate of the same note in `prompt-engineering.md`. Length note: 5,083 prose words against the 3,000–5,000 target — the required Field Notes section was added after the target was set.*
