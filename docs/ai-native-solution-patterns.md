@@ -1,8 +1,12 @@
 # AI-Native Solution Patterns: Matching Problems to Architectures
 
+**Thesis:** Most AI projects fail because the architecture is wrong for the problem, not because the model is wrong -- and the cheapest architecture that passes evaluation is the correct one, not the most capable.
+**Prerequisites:** [LLM Fundamentals](llm-fundamentals-for-practitioners.md) (tokens, context windows, API anatomy), [Prompt Engineering](prompt-engineering.md) (system prompts, output formatting), [Context Engineering](context-engineering.md) (context budgeting, information placement), [Structured Output](structured-output-and-parsing.md) (schemas, function calling), [RAG](rag-from-concept-to-production.md) (retrieval pipelines), and [Tool Design](tool-design-for-llm-agents.md) (tool definitions, MCP).
+**Reading time:** 22 minutes
+
 You can call an LLM API. You can write prompts that produce consistent output. You can retrieve external data and design tools for agents. Now you need to decide **how to wire these capabilities together** -- and the architecture you choose will determine whether your system works, not the model you pick. Most AI projects fail not because the model is wrong but because the architecture is wrong for the problem. This document is the decision guide: seven patterns, ordered by complexity, with concrete build stages and exit criteria for each.
 
-**Prerequisites:** [LLM Fundamentals](llm-fundamentals-for-practitioners.md) (tokens, context windows, API anatomy), [Prompt Engineering](prompt-engineering.md) (system prompts, output formatting), [Context Engineering](context-engineering.md) (context budgeting, information placement), [Structured Output](structured-output-and-parsing.md) (schemas, function calling), [RAG](rag-from-concept-to-production.md) (retrieval pipelines), and [Tool Design](tool-design-for-llm-agents.md) (tool definitions, MCP). This document synthesizes all six into architectural decisions.
+**Prerequisites:** [LLM Fundamentals](llm-fundamentals-for-practitioners.md) (tokens, context windows, API anatomy), [Prompt Engineering](prompt-engineering.md) (system prompts, output formatting), [Context Engineering](context-engineering.md) (context budgeting, information placement), [Structured Output](structured-output-and-parsing.md) (schemas, function calling), [RAG](rag-from-concept-to-production.md) (retrieval pipelines), and [Tool Design](tool-design-for-llm-agents.md) (tool definitions, MCP).
 
 ---
 
@@ -14,8 +18,8 @@ This is not a theoretical concern. [BCG research](https://www.zenml.io/blog/what
 
 | What teams assume | What actually happens |
 |---|---|
-| "We need an agent for this" | 90% of production LLM value comes from single calls and simple pipelines |
-| "More sophisticated = more capable" | Each added layer multiplies failure modes and debugging difficulty |
+| "We need an agent for this" | The cheapest architecture that passes evaluation is usually enough: [a 2026 analysis of 1,400 enterprise automation projects](https://thinking.inc/en/blue-ocean/comparisons/deterministic-vs-agentic-workflows) found most failed AI automation projects had used an agentic approach where a deterministic pipeline would have been both more reliable and cheaper |
+| "More sophisticated = more capable" | Each added layer multiplies failure modes and debugging difficulty, and the layers cost more than they appear to: [a 2026 benchmark](https://cotera.co/articles/serial-vs-parallel-ai-agents-benchmark) measured a serial multi-step design at $144 per 200-task run where a parallel design on a smaller model cost $0.73 and scored higher |
 | "We should use a framework" | Frameworks obscure prompts and responses, [making debugging harder](https://www.anthropic.com/research/building-effective-agents) |
 | "RAG will ground our model" | RAG solves knowledge gaps, not reasoning gaps -- applying it to the wrong problem degrades output |
 | "We need to fine-tune" | Fine-tuning solves behavioral consistency, not factual accuracy -- most teams need better prompts |
@@ -197,6 +201,8 @@ graph TD
 
 **Real-world example.** Code assistant triage. Router classifies incoming requests as: generation (write new code), debugging (find and fix bugs), review (analyze existing code), or explanation (describe what code does). Each handler uses a different system prompt, different few-shot examples, and potentially different model tiers. Simple explanations route to a smaller, faster model. Complex generation routes to the most capable model.
 
+**Measured case for routing over an agent.** The router-versus-agent question now has published numbers rather than intuition. [A 2026 study of multi-agent routing](https://arxiv.org/html/2606.28925v1) frames routing as a prediction problem over the set of candidate handlers and shows a learned router recovering most of the quality of running every handler while paying for one. Combined with the cost measurements in [the serial-versus-parallel benchmark](https://cotera.co/articles/serial-vs-parallel-ai-agents-benchmark), where matching frontier accuracy required an agent loop costing roughly two hundred times more per run, the case for routing is quality per unit cost rather than latency alone. If your routing accuracy is above roughly 95% on a labeled set, you have bought the benefit without buying the agent loop.
+
 ### Pattern 3: Parallelization
 
 Two distinct sub-patterns serve different purposes.
@@ -278,13 +284,13 @@ Two distinct sub-patterns serve different purposes.
 
 **Real-world example.** Automated issue resolution in a codebase. Agent receives a bug report, reads the codebase to understand the system, reproduces the bug, identifies the root cause, writes a fix, runs tests, and submits a pull request. Each step depends on the previous step's findings. SWE-bench benchmarks this exact workflow.
 
-**The cost reality.** Autonomous agents are 5-10x more expensive than orchestrator-worker patterns for the same task, due to exploration overhead and backtracking. Reserve them for problems where the exploration itself is the value.
+**The cost reality.** Autonomous agents cost more than orchestrator-worker patterns for the same task, because exploration, backtracking, and repeated context accumulation all bill. The measured spread is wider than the familiar "5-10x": [a 2026 benchmark across 200 tasks](https://cotera.co/articles/serial-vs-parallel-ai-agents-benchmark) measured a serial multi-step design at $144 against $0.73 for a parallel design that scored higher. Treat any multiplier as task-specific and measure your own, but plan for one to two orders of magnitude rather than a small premium. Reserve agents for problems where the exploration itself is the value.
 
 ---
 
-## The Complexity Escalation Ladder
+## The Complexity Spectrum
 
-The patterns above form a strict escalation order. The rule: **start at Pattern 0 and escalate only when evaluation data proves the current pattern insufficient.**
+The patterns above form a strict escalation ladder: **start at Pattern 0 and escalate only when evaluation data proves the current pattern insufficient.**
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#2d3748', 'primaryTextColor': '#e2e8f0', 'primaryBorderColor': '#4a5568', 'lineColor': '#a0aec0', 'secondaryColor': '#4a5568', 'tertiaryColor': '#1a202c', 'edgeLabelBackground': '#2d3748', 'clusterBkg': '#2d3748', 'clusterBorder': '#4a5568'}}}%%
@@ -415,6 +421,39 @@ The flywheel connects to every decision in this document:
 
 ---
 
+## Design Principles
+
+Five principles govern every decision in this document. Each is stated with the measurement behind it, because the failure this document exists to prevent is escalation on intuition.
+
+1. **Start at Pattern 0, and treat it as the baseline rather than the beginner's version.** The single augmented call is what the pipeline and the agent are both trying to beat. Anthropic's guidance and Chip Huyen's converge on this (quoted in The Complexity Spectrum above), and the cost of ignoring it is in the table below.
+2. **Make the cheap tier the default and the expensive tier the exception.** Route first, then escalate. A router sends most traffic to a small model and reserves the frontier model for the categories that need it, which is the difference between a system whose cost scales with traffic volume and one whose cost scales with the hardest query it has ever seen.
+3. **Every added layer must show its number.** Escalating from a call to a pipeline, or a pipeline to an agent, is a change with a measurable before and after. "It feels more capable" is not a result. If the evaluation score moves less than the noise floor of your test set, the layer is not paying for itself.
+4. **Prefer the pattern whose failure mode you can debug.** A pipeline fails at a named stage with a recorded input. An agent fails somewhere in a trajectory. Both are debuggable in principle; only one is debuggable at 3am without a trajectory viewer. Count that operational cost as part of the architectural cost.
+5. **Bound the escalation in advance.** Before building the expensive pattern, write down the cost ceiling, the maximum number of steps, and the condition that drops the system back to the cheaper pattern. An escalation with no exit condition is a permanent cost increase with a temporary justification.
+
+## Evaluation: Real-World Systems
+
+| System or study | What was measured | Reported result |
+|---|---|---|
+| ZenML / BCG production survey (1,200 deployments) | Where value lands at scale | 89% of organizations pilot generative AI; 5% achieve value at scale |
+| MAST taxonomy (Cemri et al.) | Failure origins in multi-agent systems | 79% of failures trace to specification and coordination, not technical implementation |
+| ChatDev multi-agent code generation | Baseline task accuracy | 25% |
+| Serial versus parallel benchmark (2026) | Accuracy, cost, and wall clock across 200 tasks | Frontier model serial: 97.5% at $144 in 48 minutes. Small model parallel: 99.0% at $0.73 in about a minute |
+| Enterprise automation analysis (2026) | 1,400 automation projects | Most failed projects used an agentic approach where deterministic automation would have been more reliable and cheaper |
+| Multi-agent routing study (2026) | Routing quality versus running every handler | A learned router recovers most of the quality of running all candidates while paying for one |
+
+Read together, the rows say one thing: the failures are not model failures. They are specification, coordination, and architecture failures -- which is why the escalation ladder in this document is driven by evaluation rather than by capability announcements.
+
+## Field Notes from an Operating Estate
+
+Two observations from a practitioner estate that runs agents daily, plus a statement of what it has not measured.
+
+**July 2026 -- the gate that asked the cheapest question first.** That estate put a deterministic check in front of planned work: before a plan could be committed, it had to declare either the existing thing it reuses or why nothing fits. The architectural parallel is exact, because the check did not forbid building something new -- it forbade building something new without first asking whether it already existed. That is the argument for starting at Pattern 0. The expensive step is not the pattern; it is the work done before anyone asks whether the pattern was needed. Two findings carried over: a refusal that does not name the cheaper path simply moves the cost elsewhere, and the check enforces that the question was asked, never that the answer was right.
+
+**August 2026 -- routing beats inheritance.** The estate's library of skills grew until an agent's default choice depended on which library it happened to know, rather than on which skill was best for the phase in front of it. The fix was explicit routing: the phase decides the skill. The lesson has the same shape as Pattern 2 -- when the right handler depends on the input, make that choice explicit and measurable rather than letting a default stand in for a decision.
+
+**On the limits of this section.** The estate has not run a controlled pattern-versus-pattern comparison, so it offers no accuracy or cost measurements for the ladder. The numbers above come from the published sources cited; these notes are about the decision process, which the estate has exercised repeatedly.
+
 ## Recommendations
 
 ### Short-term: Establish the Foundation
@@ -486,10 +525,13 @@ If you take one thing from this document: **your evaluation infrastructure is mo
 ### Research
 
 - **Cemri et al., "Why Do Multi-Agent LLM Systems Fail?" (2025)** -- The MAST taxonomy identifying 14 failure modes; 79% of problems from specification/coordination issues. [https://arxiv.org/html/2503.13657v1](https://arxiv.org/html/2503.13657v1)
+- **"Multi-Agent Routing as Set-Valued Prediction" (2026)** -- Routing framed as prediction over the set of candidate handlers; a learned router recovers most of the quality of running every handler at the cost of one. [https://arxiv.org/html/2606.28925v1](https://arxiv.org/html/2606.28925v1)
 
 ### Industry Reports
 
 - **ZenML, "What 1,200 Production Deployments Reveal About LLMOps in 2025"** -- BCG data showing 5% of organizations achieve AI value at scale. [https://www.zenml.io/blog/what-1200-production-deployments-reveal-about-llmops-in-2025](https://www.zenml.io/blog/what-1200-production-deployments-reveal-about-llmops-in-2025)
+- **"Serial vs. Parallel AI Agents: A Benchmark" (2026)** -- 200-task comparison of serial and parallel agent designs on accuracy, cost, and wall clock. [https://cotera.co/articles/serial-vs-parallel-ai-agents-benchmark](https://cotera.co/articles/serial-vs-parallel-ai-agents-benchmark)
+- **"Deterministic vs. Agentic Workflows" (2026)** -- Analysis of 1,400 enterprise automation projects; failed projects concentrated in agentic approaches where deterministic automation was cheaper and more reliable. [https://thinking.inc/en/blue-ocean/comparisons/deterministic-vs-agentic-workflows](https://thinking.inc/en/blue-ocean/comparisons/deterministic-vs-agentic-workflows)
 
 ### Architecture References
 
@@ -503,3 +545,7 @@ If you take one thing from this document: **your evaluation infrastructure is mo
 - [Tool Design for LLM Agents](tool-design-for-llm-agents.md) -- How to design the tool interface for Patterns 4-6
 - [LLM Role Separation: Executor vs Evaluator](llm-role-separation-executor-evaluator.md) -- Why the evaluator in Pattern 5 must be independent of the generator
 - [Quality Gates in Agentic Systems](quality-gates-in-agentic-systems.md) -- Gate design principles for pipeline steps in Patterns 1-4
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: added Design Principles, an Evaluation: Real-World Systems table, and field notes; replaced two unsourced claims (the "90% of value from single calls" figure and the "5-10x more expensive" agent multiplier) with cited 2026 measurements; added measured router-versus-agent evidence to Pattern 2; renamed the escalation-ladder heading to the house structure while keeping the ladder itself unchanged.*
