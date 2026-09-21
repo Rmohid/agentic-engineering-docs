@@ -78,7 +78,7 @@ Before examining how to build multi-agent systems, understand the seven ways the
 
 **Why it happens:** Coordination requires communication, which consumes tokens. [Anthropic's own multi-agent research system](https://www.anthropic.com/engineering/multi-agent-research-system) measured that agents use ~4x more tokens than chat interactions, and multi-agent systems ~15x. Each agent needs context about the task, its role, other agents' outputs, and the coordination protocol -- overhead single-agent systems do not pay.
 
-**The math:** A single-agent task costing $0.10 in tokens can cost $1.50 in a 4-agent system -- a 15x multiplier. At 10,000 requests/day, that is $4,500/month vs. $300/month, so the multi-agent system must deliver dramatically better results to justify the difference.
+**The math:** A single-agent task costing $0.10 in tokens can cost $1.50 in a 4-agent system -- a 15x multiplier. At 10,000 requests/day, that is $450,000/month vs. $30,000/month, so the multi-agent system must deliver dramatically better results to justify the difference.
 
 **Structural mitigation:** Cost-per-task budgets. A/B testing multi-agent against single-agent on production traffic with quality evaluation. Kill the multi-agent path unless it beats single-agent by a margin that justifies the cost delta.
 
@@ -585,9 +585,9 @@ At scale, these multipliers decide viability:
 
 | Monthly Volume | Single Agent | Multi-Agent (4) | Delta |
 |---|---|---|---|
-| 1,000 requests/day | $300/month | $4,500/month | +$4,200 |
-| 10,000 requests/day | $3,000/month | $45,000/month | +$42,000 |
-| 100,000 requests/day | $30,000/month | $450,000/month | +$420,000 |
+| 1,000 requests/day | $3,000/month | $45,000/month | +$42,000 |
+| 10,000 requests/day | $30,000/month | $450,000/month | +$420,000 |
+| 100,000 requests/day | $300,000/month | $4,500,000/month | +$4,200,000 |
 
 ### Cost Optimization: Cascaded Model Routing
 
@@ -803,4 +803,4 @@ If you cannot articulate the specific single-agent limitation you are solving, y
 
 ---
 
-*Last reviewed: September 2026. Changed in this revision: the myth-versus-reality table was rebuilt on verified figures -- the unverifiable ChatDev 25% baseline and +14% rows were replaced by the measured +15.6% verification intervention, and the Google/MIT error-amplification finding now carries its published saturation and tool-coordination results; the AutoGen column records the move to maintenance mode and the Agent Framework 1.0 successor; and the front matter, field notes, and framework-admission principle were added.*
+*Last reviewed: September 2026. Changed in this revision: the myth-versus-reality table was rebuilt on verified figures -- the unverifiable ChatDev 25% baseline and +14% rows were replaced by the measured +15.6% verification intervention, and the Google/MIT error-amplification finding now carries its published saturation and tool-coordination results; the AutoGen column records the move to maintenance mode and the Agent Framework 1.0 successor; and the front matter, field notes, and framework-admission principle were added; and the Failure 3 cost arithmetic was corrected -- its monthly pair and the monthly-volume table now both derive from the cited per-task figures ($0.10 single, $1.50 multi-agent), which they previously contradicted.*
