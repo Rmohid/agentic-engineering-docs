@@ -1,8 +1,10 @@
 # Structured Output and Output Parsing: Making LLM Output Machine-Readable
 
-You can write a good prompt. You can manage what goes into the context window. But the moment your LLM's response needs to feed into another system -- a database write, an API call, a downstream pipeline step, a UI component -- you hit the same wall: **the model produces text, and your code needs data.** Structured output is the discipline of bridging this gap reliably. It is the skill that determines whether your LLM integration works in a demo or works in production.
+**Thesis:** Every major provider now compiles your schema into a grammar and masks invalid tokens during generation, so the failures that remain are semantic rather than syntactic -- and validating meaning is still your job.
+**Prerequisites:** [LLM Fundamentals](llm-fundamentals-for-practitioners.md) (API calls, tokens, model behavior), [Prompt Engineering](prompt-engineering.md) (system prompts, output format instructions), and [Context Engineering](context-engineering.md) (context budget management).
+**Reading time:** ~20 minutes.
 
-**Prerequisites:** [LLM Fundamentals](llm-fundamentals-for-practitioners.md) (API calls, tokens, model behavior), [Prompt Engineering](prompt-engineering.md) (system prompts, output format instructions), and [Context Engineering](context-engineering.md) (context budget management). This document builds directly on all three.
+You can write a good prompt. You can manage what goes into the context window. But the moment your LLM's response needs to feed into another system -- a database write, an API call, a downstream pipeline step, a UI component -- you hit the same wall: **the model produces text, and your code needs data.** Structured output is the discipline of bridging this gap reliably. It is the skill that determines whether your LLM integration works in a demo or works in production.
 
 ---
 
@@ -15,8 +17,9 @@ This is not a formatting problem. It is an engineering problem. Every integratio
 | What teams assume | What actually happens |
 |---|---|
 | "Just ask for JSON" | The model outputs JSON 95% of the time -- the other 5% crashes your pipeline at 3 AM |
-| Strict schemas guarantee correct output | Strict schemas guarantee valid structure but can degrade reasoning accuracy by 10-26 percentage points |
-| JSON is the only serious format | XML is better for nested prose; YAML scores higher on accuracy benchmarks; Markdown is 34-38% cheaper on tokens |
+| Strict schemas guarantee correct output | Strict schemas guarantee valid structure but can degrade reasoning accuracy by 10-26 percentage points ([Gemini Shuffled Objects benchmark](https://dylancastillo.co/posts/gemini-structured-outputs.html), [JSONSchemaBench](https://arxiv.org/html/2501.10868v1)) |
+| JSON is the only serious format | On nested data, format rankings are model-specific and can invert: GPT-5 Nano scored YAML highest and XML lowest, a 17.7-point gap ([Improving Agents](https://www.improvingagents.com/blog/best-nested-data-format)) |
+| Native strict modes mean I can delete my validator | Every provider's grammar enforces shape, not meaning; unsupported keywords are ignored, and an under-constrained grammar can emit schema-violating JSON while reporting success ([JSONSchemaBench, 2026](https://beancount.io/bean-labs/research-logs/2026/07/08/jsonschemabench-structured-outputs-language-models)) |
 | Validation failures mean the model is broken | Most validation failures trace to schema design, not model capability |
 | Retrying on failure is always the right move | Each retry costs tokens and time -- a schema redesign often eliminates the failure entirely |
 
@@ -122,17 +125,17 @@ graph TD
 
 **Level 0 -- Prompt-Only.** You ask the model to "respond in JSON format" and parse the response with string manipulation or regex. Reliability: 85-95% depending on the model and prompt quality. This was the only option before mid-2023. Still appropriate for throwaway scripts or when you control the model through fine-tuning.
 
-**Level 1 -- JSON Mode.** The provider guarantees syntactically valid JSON but does not enforce a schema. OpenAI's `response_format: { type: "json_object" }`, Gemini's `response_mime_type: "application/json"`. You get parseable JSON 100% of the time, but the structure is whatever the model decides. You still need to validate against your expected shape.
+**Level 1 -- JSON Mode.** The provider guarantees syntactically valid JSON but does not enforce a schema. OpenAI's `text.format: { type: "json_object" }` on the Responses API (legacy `response_format` on Chat Completions), Gemini's `response_mime_type: "application/json"`. You get parseable JSON 100% of the time, but the structure is whatever the model decides. You still need to validate against your expected shape. JSON mode is now a legacy tier on the providers that also ship Level 3 -- it survives for cases where the schema is genuinely unknowable at request time.
 
 **Level 2 -- Tool/Function Calling.** You define your expected output as a function/tool schema and the provider guides the model to fill it. This is a critical insight that many teams miss: **function calling is not just for invoking external tools. It is a structured output mechanism.** When you define a tool with an input schema, the model produces a structured call that matches that schema -- even if you never actually execute the tool. This gives you schema-guided output with better reliability than JSON mode and less reasoning degradation than full constrained decoding.
 
-**Level 3 -- Schema-Constrained Decoding.** The provider compiles your JSON Schema into a grammar and masks invalid tokens during generation. OpenAI's Structured Outputs, Anthropic's strict mode, Gemini's response_schema. Structure is guaranteed at the token level. But this is where the reasoning-quality tradeoff becomes real -- every invalid token the model would have produced is silently redirected, and those redirections accumulate.
+**Level 3 -- Schema-Constrained Decoding.** The provider compiles your JSON Schema into a grammar and masks invalid tokens during generation. OpenAI's `text.format` with `strict: true` (Responses API) or `response_format` (Chat Completions), Anthropic's `output_config.format` plus `strict: true` on tool definitions, Google's `response_json_schema` on the Gemini API. Structure is guaranteed at the token level. But this is where the reasoning-quality tradeoff becomes real -- every invalid token the model would have produced is silently redirected, and those redirections accumulate.
 
 **Level 4 -- Validated + Semantic.** You layer application-level validation on top of schema enforcement. Pydantic validators check business logic. LLM-powered validators assess semantic correctness. Failed validations trigger retries with error context fed back to the model. Libraries like [Instructor](https://python.useinstructor.com/) operate at this level. This is the most reliable approach but also the most expensive in tokens and latency.
 
 ---
 
-## The Provider Landscape
+## Evaluation: Real-World Systems
 
 Each major provider implements structured output differently, with distinct capabilities and limitations.
 
@@ -156,7 +159,7 @@ class ExtractionResult(BaseModel):
     entities: list[ExtractedEntity]
 
 response = client.responses.create(
-    model="gpt-4o",
+    model="gpt-5.6",
     input=[{
         "role": "user",
         "content": "Extract entities: 'Jane Smith joined Acme Corp in Denver.'"
@@ -171,11 +174,13 @@ response = client.responses.create(
 result = ExtractionResult.model_validate_json(response.output_text)
 ```
 
-**Constraints:** Maximum 5 levels of nesting, 100 object properties. All properties must be in `required`. `additionalProperties` must be `false`. Semantic keywords like `minLength`, `maximum`, and `pattern` are silently ignored -- they are accepted in the schema but not enforced at the token level ([OpenAI Structured Outputs Guide](https://developers.openai.com/api/docs/guides/structured-outputs)).
+**Constraints:** Maximum 5 levels of nesting, 100 object properties. All properties must be listed in `required` -- a field you want to be optional is expressed as a union with null (`{"type": ["string", "null"]}`), because `required: false` is rejected in strict mode. `additionalProperties` must be `false`. Semantic keywords like `minLength`, `maximum`, and `pattern` are accepted in the schema but not enforced at the token level ([OpenAI Structured Outputs Guide](https://developers.openai.com/api/docs/guides/structured-outputs)).
+
+**One failure mode survives strict mode: refusal.** When the model declines, the response carries a refusal rather than a schema-conforming object. Your parser must branch on that before it validates, or a refusal will surface as a confusing validation error.
 
 ### Anthropic: Tool Use as Structured Output
 
-Anthropic uses constrained decoding with grammar compilation. Schema compilation adds 100-300ms on first request, cached for 24 hours ([Thomas Wiegold, "Claude API Structured Output"](https://thomas-wiegold.com/blog/claude-api-structured-output/)). Anthropic offers two modes: JSON outputs (`output_config.format`) and strict tool use. The tool use approach is particularly effective because it leverages the model's training on tool-calling patterns:
+Anthropic uses constrained decoding with grammar compilation. Schema compilation adds 100-300ms on the first request, and the compiled grammar is cached for 24 hours -- so editing a schema mid-session invalidates it and the next call pays the compile latency again ([Thomas Wiegold, "Claude API Structured Output"](https://thomas-wiegold.com/blog/claude-api-structured-output/)). As of September 2026 both modes are generally available across the current Claude models -- Opus 5 and 4.5 through 4.8, Sonnet 5 and 4.5/4.6, Haiku 4.5, and Fable 5/5.1. Anthropic offers two modes: JSON outputs (`output_config.format`) and strict tool use. The tool use approach is particularly effective because it leverages the model's training on tool-calling patterns:
 
 ```python
 import anthropic
@@ -184,7 +189,7 @@ import json
 client = anthropic.Anthropic()
 
 response = client.messages.create(
-    model="claude-sonnet-4-5-20250514",
+    model="claude-sonnet-5",
     max_tokens=1024,
     tools=[{
         "name": "record_entities",
@@ -225,11 +230,13 @@ response = client.messages.create(
 tool_result = response.content[0].input
 ```
 
-**Key limitation:** Anthropic does not support `anyOf`, `oneOf`, or `$ref` (recursive schemas). Schemas must be flat and inline. The SDK compensates by stripping unsupported constraints and adding them to field descriptions, then validating locally after response ([Anthropic Structured Outputs Documentation](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)).
+**Key limitations, corrected for 2026:** Anthropic's strict mode rejects recursive schemas, `minimum`/`maximum` and string-length constraints, and external `$ref`. Union types *are* supported, but capped -- 16 union-type parameters per request, against hard limits of 20 strict tools per request and 24 optional parameters in total. The SDK compensates for the rest: its schema-transform step strips unsupported constraints, moves them into field descriptions so the model still sees them, adds `additionalProperties: false` where needed, and then validates the response against your *original* schema locally ([Anthropic Structured Outputs Documentation](https://platform.claude.com/docs/en/build-with-claude/structured-outputs)).
 
-### Google Gemini: JSON Mode with Caveats
+Two behaviours worth designing around: **required properties are emitted first** in the response, so put reasoning fields before answer fields and you get reasoning before answers for free; and **a refusal does not conform to the schema**, so branch on the refusal before validating. Constrained output is also mutually exclusive with citations and with message prefilling.
 
-Gemini supports schema-constrained output but has a critical quirk: **the Python SDK alphabetically reorders schema keys before generation**, which breaks chain-of-thought reasoning. If your schema has a `reasoning` field followed by an `answer` field, the SDK reorders them to `answer` then `reasoning` -- forcing the model to produce the answer before it reasons ([Dylan Castillo, "Gemini Structured Output Problems"](https://dylancastillo.co/posts/gemini-structured-outputs.html)).
+### Google Gemini: Schema-Constrained, Ordering Now Explicit
+
+Gemini's oldest structured-output quirk is fixed, and knowing which half was fixed saves you a workaround you no longer need. **The Python SDK used to reorder schema keys alphabetically before generation**, which broke chain-of-thought reasoning: a `reasoning` field followed by an `answer` field came back as `answer` then `reasoning`, forcing the model to state the answer before it reasoned ([Dylan Castillo, "Gemini Structured Output Problems"](https://dylancastillo.co/posts/gemini-structured-outputs.html)). Current Gemini models preserve property order natively, and the API exposes `propertyOrdering` when you want to control it explicitly -- so the alphabetical workaround is obsolete. The reordering behaviour is kept here as history because the general lesson still holds: a schema's field order is an instruction about the model's reasoning order, and it is worth asserting rather than assuming.
 
 ```python
 from google import genai
@@ -242,33 +249,52 @@ class ExtractionResult(BaseModel):
     solution: str     # Use "solution" not "answer" to preserve order
 
 response = client.models.generate_content(
-    model="gemini-2.5-flash",
+    model="gemini-3.8-flash",
     contents="Extract the main topic: 'The merger was announced Tuesday.'",
     config={
         "response_mime_type": "application/json",
-        "response_schema": ExtractionResult
+        "response_json_schema": ExtractionResult
     }
 )
 ```
 
-**Workaround:** Rename fields so their alphabetical order matches your desired reasoning order. For Gemini 2.5+ models the API preserves schema key ordering, but the Python SDK overrides this behavior ([Google Gemini Structured Output Docs](https://ai.google.dev/gemini-api/docs/structured-output)). On accuracy benchmarks, Gemini's constrained JSON-Schema mode scored 86.18% versus 97.15% for natural language on the Shuffled Objects task -- a 10+ percentage point gap.
+**On the newer surface:** Google's Interactions API (`client.interactions.create(...)`) takes the same schema through a different key -- `response_format={"type": "text", "mime_type": "application/json", "schema": ...}` -- and is the agent-oriented path that keeps conversation state server-side. `generate_content` remains Google's recommended path for standard production workloads.
+
+**What Gemini will and will not enforce:** the supported subset covers `enum`, `format`, numeric and array bounds (`minimum`/`maximum`, `minItems`/`maxItems`), `properties`, `required`, `additionalProperties`, and `propertyOrdering`. Keywords outside that subset -- external `$ref` among them -- are ignored rather than rejected, which means a schema can look stricter than it is. On accuracy benchmarks, Gemini's constrained JSON-Schema mode scored 86.18% versus 97.15% for natural language on the Shuffled Objects task -- a 10+ percentage point gap, and the clearest published evidence that constrained decoding has a reasoning cost ([Google Gemini Structured Output Docs](https://ai.google.dev/gemini-api/docs/structured-output)).
 
 ### Provider Comparison
 
 | Feature | OpenAI | Anthropic | Google Gemini |
 |---|---|---|---|
 | Mechanism | CFG-based constrained decoding | Grammar-compiled constrained decoding | Constrained decoding |
+| API surface | `text.format` (Responses), `response_format` (Chat Completions) | `output_config.format`; `strict: true` on tools | `response_json_schema`; `response_format` on the Interactions API |
 | First-request latency | ~12s simple, up to 60s complex | 100-300ms | Not documented |
-| Schema cache duration | Global, duration unknown | 24 hours | Not documented |
-| Union types (anyOf) | Supported | Not supported | Supported |
-| Recursive schemas ($ref) | Supported | Not supported | Supported |
-| Nesting limit | 5 levels, 100 properties | Errors on "too complex" | Errors on "too complex" |
+| Schema cache duration | Global, duration unknown | 24 hours; a schema edit invalidates it | Not documented |
+| Union types (anyOf) | Supported | Supported, capped at 16 per request | Supported |
+| Recursive schemas ($ref) | Supported | Not supported | Not supported (external `$ref` ignored) |
+| Nesting limit | 5 levels, 100 properties | Errors on "too complex"; 20 strict tools, 24 optional parameters per request | Errors on "too complex" |
 | Schema token cost | Zero | 50-200 tokens overhead | Not documented |
-| Refusal handling | Dedicated `refusal` field | `stop_reason: "refusal"` | Not documented |
+| Refusal handling | Dedicated `refusal` field | Non-conforming response; branch before validating | Not documented |
+| Other tools | AWS Bedrock via the Converse API (Claude and select open-weight models); Mistral on La Plateforme | -- | -- |
+
+### Which providers enforce your schema natively, and which still need a retry loop
+
+This is the question teams actually ask, and in September 2026 the answer has two halves.
+
+**Native strict schema enforcement, no retry loop needed for structure:** OpenAI (Responses and Chat Completions, `strict: true`), Anthropic (`output_config.format` and strict tool use, generally available across the current Claude models), Google Gemini (schema-constrained output on both `generate_content` and the Interactions API), plus AWS Bedrock's Converse API and Mistral's La Plateforme. Self-hosted serving stacks reach parity through grammar backends -- XGrammar, Outlines, llguidance, and llama.cpp's GBNF grammars -- with XGrammar the default in vLLM, SGLang, and TensorRT-LLM since March 2026.
+
+**Retry loops you still need, everywhere:** schema enforcement guarantees *shape*, never *meaning*. You still need a validation-and-retry path for
+
+- **Refusals and truncation.** A refusal is not schema-conforming, and a response cut off by the output limit is not either. Neither is a bug in the provider; both are conditions your parser must handle.
+- **Semantic errors.** The schema cannot know that an extracted date does not exist, that a currency code is wrong for the country, or that a `confidence` of 0.99 is unjustified. Business rules live in application code.
+- **Unsupported keywords.** Every provider supports a subset. A `minimum`, a string length, or an external `$ref` that the provider silently ignores is a constraint only your validator enforces.
+- **Under-constrained grammars.** Grammar backends have their own bugs, and the dangerous ones are silent. In a benchmark of 9,558 real-world schemas, XGrammar produced 38 under-constrained failures -- emitting JSON that violated the declared schema while reporting success -- against Guidance's single failure ([JSONSchemaBench](https://beancount.io/bean-labs/research-logs/2026/07/08/jsonschemabench-structured-outputs-language-models)). A compilation error is caught at design time; an under-constrained failure corrupts data at runtime with no signal at all.
+
+So: use the native strict mode, and keep the retry loop. The two are not alternatives.
 
 ---
 
-## Schema Design Principles
+## Design Principles
 
 Schema design is where most teams lose performance without realizing it. The schema is not just a validation contract -- it is a set of instructions to the model about how to structure its thinking.
 
@@ -343,7 +369,7 @@ from openai import OpenAI
 client = instructor.from_openai(OpenAI())
 
 result = client.chat.completions.create(
-    model="gpt-4o",
+    model="gpt-5.6",
     response_model=SentimentResult,
     max_retries=3,
     messages=[{
@@ -378,7 +404,9 @@ sequenceDiagram
     V->>App: Pass / Fail with errors
 ```
 
-This approach outperforms single-step structured output on complex tasks because the first step preserves reasoning quality and the second step guarantees structure. The formatting step can use a smaller model (GPT-4o-mini, Claude Haiku) because it is not reasoning -- it is transcribing ([The Elder Scripts, "Two-Step Pattern"](https://theelderscripts.com/improving-structured-outputs-from-llms-a-two-step-pattern/)).
+This approach outperforms single-step structured output on complex tasks because the first step preserves reasoning quality and the second step guarantees structure. The formatting step can use a smaller model (GPT-5.6 Luna, Claude Haiku 4.5) because it is not reasoning -- it is transcribing ([The Elder Scripts, "Two-Step Pattern"](https://theelderscripts.com/improving-structured-outputs-from-llms-a-two-step-pattern/)).
+
+**The 2026 refinement:** the two-step pattern is now partly a *parameter* rather than an architecture. If your provider exposes a reasoning-effort control, raising effort while keeping schema enforcement on achieves the same separation in one call -- the model reasons at the depth you paid for and still emits conforming JSON. Reach for the two-step split when the reasoning model and the formatting model are genuinely different models at different price tiers, which is also the cheapest way to run it.
 
 ### When Not to Retry
 
@@ -464,7 +492,7 @@ The key insight across all three patterns: **structured output is not a feature 
 
 ### Short-term: Get parseable output reliably
 
-1. **Start at Level 2 (tool/function calling) for most use cases.** Tool calling gives you schema-guided output without the full reasoning penalty of constrained decoding. Reserve Level 3 (strict schemas) for cases where you need absolute structural guarantees and the task is not reasoning-heavy.
+1. **Start at Level 2 (tool/function calling) for most use cases.** Tool calling gives you schema-guided output without the full reasoning penalty of constrained decoding. Where your provider now ships strict tool use -- OpenAI's `strict: true` on function definitions, Anthropic's strict tool mode -- turn it on: you get token-level guarantees on the tool arguments without giving up tool calling's training-time familiarity. Reserve Level 3 for cases where you need absolute structural guarantees on a free-standing response and the task is not reasoning-heavy.
 
 2. **Add a reasoning field to every schema.** Put it first. Call it `reasoning` or `chain_of_thought`. This single change improves accuracy by up to 60% and costs only a few hundred extra tokens per call.
 
@@ -483,6 +511,18 @@ The key insight across all three patterns: **structured output is not a feature 
 7. **Define structured output contracts between pipeline stages.** Treat schemas as API contracts. Version them. Validate at every boundary. When a schema changes, update all downstream consumers.
 
 8. **Monitor enforcement-level metrics in production.** Track retry rates, validation failure rates, and `stop_reason` distributions per schema. These metrics tell you when a schema is too complex or a task has outgrown its enforcement level.
+
+---
+
+## Field Notes from an Operating Estate
+
+Three observations from running pipelines that write structured records into stores.
+
+**A schema-valid record is not a true record (July 2026).** The most useful rule I have adopted for contested claims is that the check is never self-certified. When I want to know how much a claim should be trusted, the grading has to come from a fixed procedure applied by something other than the party that produced the claim -- because self-grading fails exactly when the claim is loaded, which is the only case that matters. The structured-output version of this is direct: schema enforcement proves shape, and the moment your validator is the same component that generated the value, you have a confident writer and no check at all. Semantic validation belongs in a separate component with its own rules.
+
+**A write that validates structurally can still fail completely (July 2026).** One of my ingest runs landed 14 records and 0 verdicts. Every individual write succeeded, nothing raised, and the run reported normal completion. The damage appeared later as duplicate clusters, because downstream re-pulled everything that had never been marked as processed. Structural validation asked "is this record well-formed?" and got a yes 14 times; nothing asked "did the run finish its job?" That is the difference between validating a record and validating a transaction, and the second question is the one that catches silent half-landings.
+
+**Run the deterministic check first, and make the model reproduce its own findings (September 2026).** In the loop design I run, every evaluation starts with deterministic checks -- schema conformance, return codes, unit tests -- and the model judge is only a second pass, invoked when those are inconclusive. The evaluator is also required to reproduce any failure it reports rather than trusting the report it received, and it never shares the executor's session. Both rules exist for the same reason: an evaluator that accepts the writer's own summary of what happened is not evaluating anything. If your pipeline has a model checking a model's output, make the cheap deterministic layer go first and make the expensive layer prove the failure itself.
 
 ---
 
@@ -526,13 +566,15 @@ If you are already building multi-step pipelines and need to decide which archit
 
 ### Research Papers
 
-- **JSONSchemaBench (2025)**, ["Let Me Speak Freely? A Study on the Impact of Format Restrictions on Performance of Large Language Models"](https://arxiv.org/html/2501.10868v1) -- Evaluated 6 constrained decoding frameworks against 10,000 real-world schemas; found constrained decoding can improve reasoning by up to 4% in some cases but degrades on complex schemas.
+- **JSONSchemaBench (2025)**, [JSONSchemaBench: a benchmark of 9,558 real-world schemas](https://beancount.io/bean-labs/research-logs/2026/07/08/jsonschemabench-structured-outputs-language-models) -- Tests six constrained-decoding frameworks against schemas drawn from function-call signatures, GitHub repositories, Kubernetes configs, and the JSONSchemaStore collection; found 38 under-constrained failures in XGrammar against 1 in Guidance.
+- **"Let Me Speak Freely?" (2025)**, [A Study on the Impact of Format Restrictions on Performance of Large Language Models](https://arxiv.org/html/2501.10868v1) -- Evaluated 6 constrained decoding frameworks against 10,000 real-world schemas; found constrained decoding can improve reasoning by up to 4% in some cases but degrades on complex schemas.
+- **Improving Agents**, [Which Nested Data Format Do LLMs Understand Best?](https://www.improvingagents.com/blog/best-nested-data-format) -- Head-to-head accuracy and token comparison of JSON, YAML, XML, and Markdown on nested data across several models, with per-model rankings that do not agree.
 
 ### Official Documentation
 
 - **OpenAI**, ["Structured Outputs Guide"](https://developers.openai.com/api/docs/guides/structured-outputs) -- Canonical reference for JSON Schema enforcement, strict mode requirements, supported features, and the distinction between Structured Outputs and JSON mode.
 - **Anthropic**, ["Structured Outputs"](https://platform.claude.com/docs/en/build-with-claude/structured-outputs) -- Complete reference for JSON outputs mode, strict tool use, SDK transformation pipeline, and supported schema features.
-- **Google**, ["Gemini Structured Output"](https://ai.google.dev/gemini-api/docs/structured-output) -- Reference for response_mime_type, response_schema, supported types, and streaming behavior.
+- **Google**, ["Gemini Structured Output"](https://ai.google.dev/gemini-api/docs/structured-output) -- Reference for response_mime_type, response_json_schema, the supported schema subset, and streaming behavior.
 - **Google**, ["Structured Output Improvements"](https://blog.google/technology/developers/gemini-api-structured-outputs/) -- November 2025 update adding anyOf, $ref, minimum/maximum, and implicit property ordering.
 
 ### Practitioner Articles
@@ -544,6 +586,7 @@ If you are already building multi-step pipelines and need to decide which archit
 - **Instructor Blog**, ["Bad Schemas Could Break Your LLM"](https://python.useinstructor.com/blog/2024/09/26/bad-schemas-could-break-your-llm-structured-outputs/) -- Demonstrated 90.5 percentage point accuracy swing from field name changes and 60% drop from missing reasoning fields.
 - **Instructor Blog**, ["Should I Be Using Structured Outputs?"](https://python.useinstructor.com/blog/2024/08/20/should-i-be-using-structured-outputs/) -- Compared native structured outputs versus Instructor on latency, semantic validation, and streaming.
 - **Cleanlab**, ["Structured Output Benchmark"](https://cleanlab.ai/blog/structured-output-benchmark/) -- Found major ground-truth annotation errors across existing benchmarks, conflating schema compliance with semantic correctness.
+- **Wilkins, C.**, ["LLM Structured Outputs: Schema Validation for Real Pipelines" (2026)](https://collinwilkins.com/articles/structured-output) -- Cross-provider comparison of 2026 schema mechanisms and schema-subset limits, including Anthropic's per-request caps on strict tools, optional parameters, and union types.
 - **Aidan Cooper**, ["Constrained Decoding"](https://www.aidancooper.co.uk/constrained-decoding/) -- Technical guide to CFG versus FSM approaches and quality degradation from forced token paths.
 - **The Elder Scripts**, ["Two-Step Pattern"](https://theelderscripts.com/improving-structured-outputs-from-llms-a-two-step-pattern/) -- Describes the reason-first, format-second architecture for preserving reasoning quality.
 - **Boundary ML**, ["Structured Output from LLMs"](https://boundaryml.com/blog/structured-output-from-llms) -- Compares error-tolerant parsing, constrained generation, retries, and prompt engineering approaches.
@@ -555,3 +598,9 @@ If you are already building multi-step pipelines and need to decide which archit
 - **[PydanticAI](https://ai.pydantic.dev/)** -- Agent framework by the Pydantic team with structured output, tool support, and dependency injection. Reached V1 stable September 2025.
 - **[Outlines](https://github.com/dottxt-ai/outlines)** -- Pre-generation FSM-based constrained decoding for local models. Zero-retry guarantee.
 - **[Guidance](https://github.com/guidance-ai/guidance)** -- CFG-based constrained generation with token healing. 96% schema coverage on JSONSchemaBench.
+- **[XGrammar](https://github.com/mlc-ai/xgrammar)** -- Grammar engine behind the token-masking guarantees in vLLM, SGLang, and TensorRT-LLM; precomputes masks for the context-independent majority of the vocabulary and reports per-token overhead under 40 microseconds.
+- **[llguidance](https://github.com/guidance-ai/llguidance)** -- Alternative grammar backend, roughly 50 microseconds per token, and faster than unconstrained decoding when the grammar uniquely determines the next token.
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: every provider API surface corrected (OpenAI's Responses `text.format` with strict mode as default, Anthropic's `output_config.format` and strict tool use with their 2026 limits, Google's `response_json_schema` and `propertyOrdering`); the obsolete Gemini alphabetical-reordering workaround retired and the corrected schema subset documented; a new section stating which providers enforce schemas natively and what still needs a retry loop; the grammar-backend state (XGrammar, llguidance) and the JSONSchemaBench under-constrained failure result added; current model names substituted in all code examples; and a 2026 note on reasoning effort replacing the two-step split where the provider offers the control.*
