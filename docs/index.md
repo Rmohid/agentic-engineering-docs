@@ -1,6 +1,6 @@
 # Agentic Engineering: A Practitioner's Guide
 
-From "what is a token" to production multi-agent systems -- 20 deep-dives that build on each other in sequence, plus companion references.
+From "what is a token" to production multi-agent systems -- 23 deep-dives that build on each other in sequence, plus companion references.
 
 This documentation suite is designed for engineers who need to build production systems that leverage AI. It assumes programming experience but no prior LLM knowledge. Each document is self-contained but designed to be read in order -- later documents reference concepts and patterns introduced in earlier ones.
 
@@ -216,6 +216,36 @@ Why most loops plateau. The evaluator independence principle. 6 failure modes of
 
 ---
 
+## Tier 6: Agent Operations and Governance
+
+*What you need once an agent runs repeatedly, on its own, under rules that accumulate. Read this tier after Tier 3 — these documents assume you already have gates, evaluation, and oversight in place.*
+
+### 21. [Agent Skills and Procedural Memory](agent-skills-and-procedural-memory.md)
+
+**You need this if:** your agent re-derives the same procedure every session, or you have written skills that never fire.
+
+Why an agent relearns a procedure every session unless the procedure is written down as a selectable artifact. What a skill is: a trigger, an order, its pitfalls, and a check. The selection problem — a library grows more valuable and less usable at the same rate, and a skill that is never selected is dead weight the context budget still pays for. Progressive disclosure. Admission and receipts for a skill library.
+
+**After reading:** You can write skills an agent actually selects, and you can tell which of your existing ones are dead weight.
+
+### 22. [Unattended Agent Operations](unattended-agent-operations.md)
+
+**You need this if:** your agent runs on a schedule with nobody at the keyboard.
+
+Unattended agents as production infrastructure. Permissions granted per actor class rather than shared. A durable ledger instead of a live coordinator, because a coordinator that dies takes its record with it. A spending brake that reads a counter which only moves one way. Why an exhausted budget is a failure and never a finish. Fleet health checks, crash recovery, and resume.
+
+**After reading:** You can run agents unattended without waking up to a bill or to a job that quietly stopped.
+
+### 23. [Agent Governance and Intent Records](agent-governance-and-intent-records.md)
+
+**You need this if:** your agent rules have multiplied, started contradicting each other, and lost their reason.
+
+Why a rulebook for agents fails the same way a rulebook for people fails. The repair is not better rules but a layer above them: a tree of outcomes in which every rule hangs off the outcome it serves. Every mechanically checkable rule carries a gate. Every standard you cannot enforce is recorded as a gap rather than asserted. Who is allowed to change an intent node.
+
+**After reading:** You can keep a growing rule set honest, and you know which of your own rules nothing enforces.
+
+---
+
 ## Problem-Pattern Index
 
 *Find the right document for your specific problem.*
@@ -238,6 +268,9 @@ Why most loops plateau. The evaluator independence principle. 6 failure modes of
 | Coordinate multiple agents | [19. Multi-Agent](multi-agent-coordination.md) | [13. Memory](memory-and-state-management.md) |
 | Build self-improving loops | [20. Self-Improving](self-improving-systems.md) | [10. Role Separation](llm-role-separation-executor-evaluator.md) |
 | Choose a framework or tool | [Framework Landscape](ai-native-framework-landscape.md) | [7. Solution Patterns](ai-native-solution-patterns.md) |
+| Write a procedure my agent will reuse | [21. Agent Skills](agent-skills-and-procedural-memory.md) | [3. Context Engineering](context-engineering.md) |
+| Run an agent unattended on a schedule | [22. Unattended Operations](unattended-agent-operations.md) | [16. Human-in-the-Loop](human-in-the-loop-patterns.md) |
+| Stop my agent rules from rotting | [23. Agent Governance](agent-governance-and-intent-records.md) | [11. Quality Gates](quality-gates-in-agentic-systems.md) |
 
 ---
 
@@ -259,6 +292,20 @@ A practical pattern for implementing persistent memory in AI coding agents and a
 
 Every document follows the same structure: problem diagnosis before solutions, failure taxonomy before recommendations, concrete code before abstract advice. No document assumes you have read any other unless it is listed as a prerequisite.
 
-The documents are opinionated. They reflect the current practitioner consensus (Anthropic, OpenAI, Google, and the broader engineering community) as of March 2026. Where sources disagree, the documents state the disagreement rather than picking a side.
+The documents are opinionated. They reflect the current practitioner consensus (Anthropic, OpenAI, Google, and the broader engineering community) as of September 2026. Where sources disagree, the documents state the disagreement rather than picking a side.
 
-The consistent message across all 20 documents: **start with the simplest approach that could work, measure whether it does, and escalate complexity only when the data demands it.**
+The consistent message across all 23 documents: **start with the simplest approach that could work, measure whether it does, and escalate complexity only when the data demands it.**
+
+---
+
+## What Changed in the September 2026 Revision
+
+The first edition of this suite was written in March 2026. Six months is a long time in this field, so every document was reviewed against what has actually changed, and three documents were added for subjects that did not have one.
+
+**Three new documents.** [Agent Skills and Procedural Memory](agent-skills-and-procedural-memory.md), [Unattended Agent Operations](unattended-agent-operations.md), and [Agent Governance and Intent Records](agent-governance-and-intent-records.md). Each covers a problem that shows up only once an agent runs repeatedly, on its own, under rules that accumulate — which is where most teams end up.
+
+**A currency footer on every document.** Each one now ends with the date it was last reviewed and a one-line list of what changed, so you can tell a stale claim from a current one at a glance.
+
+**Field notes.** Every document now carries a short section of first-person observations from operating agents against these APIs daily, dated by month. They are the part of this suite that cannot be found in vendor documentation, and they are the part most likely to save you a week.
+
+**Corrected and refreshed claims.** The model lineup, pricing, context-window sizes, and long-context surcharges were replaced across the suite. Several March claims did not survive: structured output is now grammar-constrained by every major provider, so the remaining parsing failures are semantic rather than syntactic; the RAG ceiling is set at chunking time rather than by the embedding model; and the evidence on prompt injection now points at containment rather than at model quality.

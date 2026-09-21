@@ -1,6 +1,6 @@
 # Agentic Engineering: A Practitioner's Guide
 
-17 deep-dive documents covering everything from "what is a token" to production multi-agent systems. Built for software engineers who need to put AI-native solutions into production.
+23 deep-dive documents covering everything from "what is a token" to production multi-agent systems. Built for software engineers who need to put AI-native solutions into production.
 
 ## Who This Is For
 
@@ -10,7 +10,9 @@ Every document in this suite follows the same structure: diagnose the problem be
 
 ## Start Here
 
-**[Read the full guide](docs/index.md)** -- includes a 5-tier reading path, per-document summaries, and a problem-pattern lookup table.
+**[Read the full guide](docs/index.md)** -- includes a 6-tier reading path, per-document summaries, and a problem-pattern lookup table.
+
+See the [changelog](CHANGELOG.md) for what changed in the September 2026 revision.
 
 Or jump directly to what you need:
 
@@ -25,6 +27,9 @@ Or jump directly to what you need:
 | Prevent prompt injection | [Security and Safety](docs/security-and-safety.md) |
 | Control costs | [Cost Engineering](docs/cost-engineering-for-llm-systems.md) |
 | Debug production issues | [Observability](docs/observability-and-monitoring.md) |
+| Write a procedure my agent will reuse | [Agent Skills](docs/agent-skills-and-procedural-memory.md) |
+| Run an agent unattended on a schedule | [Unattended Agent Operations](docs/unattended-agent-operations.md) |
+| Stop my agent rules from rotting | [Agent Governance](docs/agent-governance-and-intent-records.md) |
 
 ## What's Inside
 
@@ -38,14 +43,17 @@ Or jump directly to what you need:
 
 **Tier 5 -- Advanced:** Multi-agent coordination, self-improving systems
 
-Each document is 3,000-5,000 words with Mermaid diagrams, comparison tables, working code examples, and a References section with clickable URLs to every source consulted.
+**Tier 6 -- Agent Operations and Governance:** Agent skills and procedural memory, unattended agent operations, agent governance and intent records
+
+Each document is 2,500-7,000 words with Mermaid diagrams, comparison tables, working code examples, a dated field-notes section, and a References section with clickable URLs to every source consulted. Every document ends with the date it was last reviewed.
 
 ## Repository Structure
 
 ```
-docs/              17 deep-dive documents + index reading guide
+docs/              23 deep-dive documents + index reading guide
 .claude/commands/  The /deep-dive skill definition used to generate each document
 tools/             Generation script (maintainer use only)
+CHANGELOG.md       What changed in each revision
 ```
 
 ## For Maintainers
@@ -65,6 +73,19 @@ To regenerate from a specific step (e.g., after a failure at step 5):
 ```bash
 RESUME_FROM=5 ./generate-deep-dives.sh
 ```
+
+## How This Was Produced
+
+This guide was written by an engineer who runs agents in production daily, and it is revised against that evidence.
+
+The first edition (March 2026) was generated with an AI coding agent against a structured command, then reviewed and corrected by hand. The September 2026 revision was run as ten parallel agent workstreams -- one per subject area -- each doing its own research pass and then rewriting its documents in place. Every workstream had to pass a byte-level gate before its work was accepted: file changed, length in range, required sections present, five or more live sources, and no internal name, path, or personal detail anywhere in the text. Nothing here was published on an agent's own say-so.
+
+Two consequences are worth stating plainly:
+
+- **Every claim carries a source.** Where a number appears, it is either measured and labelled as measured, or reported as an operating estimate. Invented statistics are the failure mode this suite exists to avoid.
+- **Where the sources disagree, the document says so.** This is a practitioner's guide, not a consensus statement, and the disagreement is usually the interesting part.
+
+Corrections with a source are welcome -- open an issue.
 
 ## License
 
