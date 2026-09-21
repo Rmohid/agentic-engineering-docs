@@ -44,6 +44,10 @@ documents were added for subjects that did not have one.
   caller's job. The document was rewritten around that.
 - **Retrieval.** The ceiling on a retrieval-augmented system is set at chunking
   time, before any vector database is compared — not by the embedding model.
+- **The framework landscape was recounted.** The companion reference mapped 22+
+  third-party frameworks across seven layers in March 2026; it now maps 31
+  current products across the same seven layers, and carries a churn table of
+  the 2026 acquisitions, mergers, and shutdowns.
 - **Prompt injection.** The evidence now points at containment rather than at
   model quality: the same model has been measured at a 0% and a 78.6% injection
   success rate across two environments, with only its permitted actions

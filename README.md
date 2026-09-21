@@ -45,12 +45,12 @@ Or jump directly to what you need:
 
 **Tier 6 -- Agent Operations and Governance:** Agent skills and procedural memory, unattended agent operations, agent governance and intent records
 
-Each document runs 3,800-7,900 words with Mermaid diagrams, comparison tables, working code examples, a dated field-notes section, and a References section with clickable URLs to every source consulted. Every document ends with the date it was last reviewed.
+Each document runs 3,800-7,900 words by raw word count (code blocks and URLs included) with Mermaid diagrams, comparison tables, working code examples, a dated field-notes section, and a References section with clickable URLs to every source consulted. Every document ends with the date it was last reviewed.
 
 ## Repository Structure
 
 ```
-docs/              23 deep-dive documents + index reading guide
+docs/              23 deep-dive documents, two companion references, and the index reading guide
 .claude/commands/  The /deep-dive skill definition used to generate each document
 tools/             Generation script (maintainer use only)
 CHANGELOG.md       What changed in each revision
@@ -78,12 +78,15 @@ RESUME_FROM=5 ./generate-deep-dives.sh
 
 This guide was written by an engineer who runs agents in production daily, and it is revised against that evidence.
 
-The first edition (March 2026) was generated with an AI coding agent against a structured command, then reviewed and corrected by hand. The September 2026 revision was run as ten parallel agent workstreams -- one per subject area -- each doing its own research pass and then rewriting its documents in place. Every workstream had to pass a byte-level gate before its work was accepted: file changed, length in range, required sections present, five or more live sources, and no internal name, path, or personal detail anywhere in the text. Nothing here was published on an agent's own say-so.
+The first edition (March 2026) was generated with an AI coding agent against a structured command, then reviewed and corrected by hand. The September 2026 revision was run as ten parallel agent workstreams -- one per subject area -- each doing its own research pass and then rewriting its documents in place. Every workstream had to pass a byte-level gate before its work was accepted: file changed, length in range, required sections present, five or more live sources, and no internal name, path, or personal detail anywhere in the text.
 
-Two consequences are worth stating plainly:
+What that process requires, rather than what it delivers:
 
-- **Every claim carries a source.** Where a number appears, it is either measured and labelled as measured, or reported as an operating estimate. Invented statistics are the failure mode this suite exists to avoid.
+- **Every number has to resolve to a source.** A figure is either measured and labelled as measured, or reported with the source behind it. A number that cannot be resolved comes out.
 - **Where the sources disagree, the document says so.** This is a practitioner's guide, not a consensus statement, and the disagreement is usually the interesting part.
+- **The first pass of this revision was adversarially reviewed, and the review found real defects.** A fresh reviewer checked the published text against the primary source behind each numeric claim, and several did not hold: a dollar figure its own citation contradicted, five uncited financial figures, and a benchmark number taken from a superseded paper revision. All three are corrected in the version you are reading.
+
+That standard is stricter than most practitioner writing on these subjects, which is the reason to set it. It is a standard, not a result: what you are reading is the corrected pass, not the first.
 
 Corrections with a source are welcome -- open an issue.
 
