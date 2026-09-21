@@ -588,8 +588,6 @@ Two observations from writing instructions that agents actually have to follow.
 
 **An instruction that names a trade-off without resolving it will be read the cheap way (July 2026).** A rule I wrote for my own agent instructions said that clarity mattered more than concision. The agents read it as a standing licence to write long, and produced exactly what the rule existed to prevent: messages that were over long, carried information irrelevant to the decision in front of the reader, and used abbreviations the reader had to look up. The defect was structural -- the rule argued against itself by naming a length axis it did not resolve. I deleted the axis and replaced it with one test: can the reader act from this message alone? Padding, shorthand, and batched questions all fail that test, and none of them can hide behind clarity. The generalisation is what stuck: when two goals compete in an instruction, resolve the competition or the writer picks for you.
 
-**A pointer is not an instruction until it resolves (August 2026).** I audited the routing edges between the skills in my agent setup and found 219 of them -- 44 crossing a library boundary -- and 8 already pointing at nothing. Nothing had complained, because a dangling pointer to an instruction is not an error. It is silence: the model simply never receives the text. I now run a gate that fails the commit that would create a broken edge, and I treat "the instruction did not fire" and "the instruction failed" as two different results. If your instructions are assembled from references, the reference graph is part of the prompt and deserves a check.
-
 ---
 
 ## Recommendations
@@ -681,4 +679,4 @@ This document covers how to write effective prompts for well-defined tasks. The 
 
 ---
 
-*Last reviewed: September 2026. Changed in this revision: the chain-of-thought section rewritten around reasoning-effort controls (Anthropic adaptive thinking, OpenAI `reasoning_effort` from `none` to `ultra`, Google thinking tokens billed as output); retired OpenAI prompting-guide links replaced with current guidance; current model names substituted throughout; a myth-table row added for the "reasoning models made prompting obsolete" claim; and a cross-provider evaluation of prompting guidance added.*
+*Last reviewed: September 2026. Changed in this revision: the chain-of-thought section rewritten around reasoning-effort controls (Anthropic adaptive thinking, OpenAI `reasoning_effort` from `none` to `ultra`, Google thinking tokens billed as output); retired OpenAI prompting-guide links replaced with current guidance; current model names substituted throughout; a myth-table row added for the "reasoning models made prompting obsolete" claim; and a cross-provider evaluation of prompting guidance added; the August 2026 field note on the routing-edge audit removed as a duplicate of the same note in `agent-skills-and-procedural-memory.md`.*

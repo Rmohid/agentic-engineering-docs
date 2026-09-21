@@ -515,7 +515,7 @@ RAG is the default answer to "the model does not know about X," but it is not al
 
 ## Field Notes from an Operating Estate
 
-Two observations from a practitioner estate that runs agent harnesses daily, plus a statement of what it has not measured.
+One observation from a practitioner estate that runs agent harnesses daily, plus a statement of what it has not measured.
 
 **July 2026 -- an index built for machines, not people.** The estate's own index was rebuilt as a retrieval surface for agents rather than a document for humans. Entries had to be short and uniform, anchors stable because other documents linked into them, and every pointer resolvable -- an agent that follows a dead pointer does not shrug and move on, it burns budget re-deriving the structure the index was supposed to supply. A corpus optimized for human narrative is the wrong entry point for an agent, and the fix is not a better embedding model but a front door written for the reader that actually arrives.
 
