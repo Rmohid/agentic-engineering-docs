@@ -161,7 +161,7 @@ The load-bearing claim: **a rule holds no intent of its own.** It only renders a
 
 **Level 4 — A tree with gates.** Every mechanically checkable rule gets an enforcement process, and the rule is satisfied only by that process running. Two properties are non-negotiable. A gate cannot be disabled by the party it gates. Its coverage derives from the work — what the change touches, how large it is, where it lands — never from a field its author fills in. Selection is the subtle half: an agent that cannot disable a check can still route around it by describing its work under the heading the check does not cover, and it never has to lie to do so.
 
-Measured, from one practitioner's estate: rules carried by injection alone bound in the high 80s to low 90s across the estate's probe fixtures, against the 50–70% band reported for prose instructions. The same probes showed a single fixture change swinging one case from 0% to 100%, so the number describes the fixture as much as the mode. That is the honest version of a rate.
+Measured, from one practitioner's estate: rules carried by injection alone bound in the high 80s to low 90s across the estate's probe fixtures. The same probes showed a single fixture change swinging one case from 0% to 100%, so the number describes the fixture as much as the mode. That is the honest version of a rate.
 
 **Level 5 — A tree, gates, and an alignment audit.** A deterministic gate runs on every change to the record and refuses structural violations: every rule has exactly one parent, everything reaches the root, every gated rule carries its mode, every cited assumption resolves. An audit then asks the question no structural check can: **does the rule text still render the intent above it?**
 
@@ -430,4 +430,4 @@ A system answering "bad answer" on four or more of these has a rulebook, not gov
 
 ---
 
-*Last reviewed: September 2026. Changed in this revision: new document — the layer above the rules: an outcome tree binding every rule to the intent it renders, gates for the mechanically checkable rules, prose for the judgment rules, and every unenforced standard recorded as a tracked gap rather than asserted.*
+*Last reviewed: September 2026. Changed in this revision: new document — the layer above the rules: an outcome tree binding every rule to the intent it renders, gates for the mechanically checkable rules, prose for the judgment rules, and every unenforced standard recorded as a tracked gap rather than asserted. A compliance band attributed to an unnamed report was removed from the governance spectrum, leaving only the estate's own measurement.*

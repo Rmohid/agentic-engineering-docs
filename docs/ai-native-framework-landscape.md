@@ -12,7 +12,7 @@ Every team building an AI-native application faces the same question within the 
 
 ---
 
-## 1. The Core Tension
+## The Core Tension
 
 The AI framework ecosystem suffers from a contradiction: **the teams that most need frameworks are the least equipped to evaluate them, and the teams most equipped to evaluate them rarely need frameworks at all.**
 
@@ -39,7 +39,7 @@ graph LR
     D -.->|"break the cycle"| F
 ```
 
-The landscape itself reflects this tension. There are now **31 products across 7 layers** competing for attention -- counted as the distinct entries in the layer tables in section 3, and re-verified in September 2026. The table below maps the primary categories:
+The landscape itself reflects this tension. There are now **31 products across 7 layers** competing for attention -- counted as the distinct entries in the layer tables below, and re-verified in September 2026. The table below maps the primary categories:
 
 | Layer | What It Solves | Complexity Without It | Example Frameworks |
 |---|---|---|---|
@@ -58,7 +58,7 @@ The 2026 framework market consolidated by acquisition and merger rather than by 
 | Product | Change | Date | What it means for you |
 |---|---|---|---|
 | **Portkey** | Acquired by Palo Alto Networks | May 2026 | The gateway now sits inside a security vendor. Confirm roadmap, licence, and data handling before committing. |
-| **Langfuse** | Acquired by ClickHouse, as part of a $400M Series D | Jan 2026 | Licence and self-hosting stated unchanged; self-hosting now implies a ClickHouse dependency. |
+| **Langfuse** | Acquired by ClickHouse, announced alongside the company's [$400M Series D](https://clickhouse.com/blog/clickhouse-raises-400-million-series-d-acquires-langfuse-launches-postgres) | Jan 2026 | Licence and self-hosting stated unchanged; self-hosting now implies a ClickHouse dependency. |
 | **Arize** | Dynatrace announced an agreement to acquire it | Aug 2026 | Arize AX and Phoenix remain available, but the announcement does not commit to a standalone open-source Phoenix. |
 | **Helicone** | Acquired by Mintlify; maintenance mode | Mar 2026 | Do not start new work on it. |
 | **AutoGen and Semantic Kernel** | Superseded by **Microsoft Agent Framework**, which merges them into one supported SDK | Apr 2026 | AutoGen (54.5K stars) is in maintenance mode; AG2 is the community fork. New Microsoft-ecosystem work starts on Agent Framework. |
@@ -70,7 +70,7 @@ The 2026 framework market consolidated by acquisition and merger rather than by 
 
 ---
 
-## 2. Failure Taxonomy
+## Failure Taxonomy
 
 Teams fail with AI frameworks in predictable ways. Understanding these failure modes is essential before evaluating any tool.
 
@@ -112,7 +112,22 @@ Teams assume a single framework should handle everything: orchestration, RAG, ag
 
 ---
 
-## 3. The AI Application Stack
+## The Framework Adoption Spectrum
+
+Six levels, from direct calls to a framework-owned architecture. They are not a maturity ladder -- Level 3 is not better than Level 1, it is a different trade -- and the failure mode at each level is the one the level above exists to fix.
+
+| Level | Name | What exists | What breaks at this level |
+|---|---|---|---|
+| 0 | **Direct API calls** | An HTTP client, a schema library, your own loop and retry logic. | You re-derive what a library already tests: the wins are understanding, the cost is time. |
+| 1 | **Point libraries** | One library per narrow concern -- a gateway, a structured-output layer, an eval store. | Nothing owns the composition; retries, tracing, and version pinning are wired separately in every service. |
+| 2 | **One framework per layer** | A named tool at each layer of the stack, joined by your own code. | The glue is yours: upgrades, retries, and traces across every seam. |
+| 3 | **A framework owning orchestration** | A graph or agent runtime owns control flow and state; your code supplies nodes and tools. | The runtime's abstractions shape the design, and the parts that touched it are the parts you rewrite to leave. |
+| 4 | **Framework-first** | The framework decides the architecture: its primitives, its project layout, its deployment model. | Migration cost is the whole application; the maintainer's roadmap becomes yours. |
+| 5 | **Platform lock-in** | The model provider's own SDK and hosted runtime, chosen for convenience ([Failure 4](#failure-4-vendor-lock-in-by-default)). | Pricing, deprecation, and rate limits are decided elsewhere, and the exit is a rewrite. |
+
+Most production systems belong at Level 2 and stay there. The move to Level 3 is the one worth arguing about, and the test is measurement rather than preference: you move when the framework does work you have already tried to do yourself and got wrong.
+
+## The AI Application Stack
 
 Rather than comparing frameworks head-to-head, it is more useful to understand the **layers** of an AI-native application and which tools are best-in-class at each layer. Most production systems compose tools from multiple layers.
 
@@ -123,7 +138,7 @@ graph TD
         style L7 fill:#f0e8f8,stroke:#4a90d9
         Langfuse["Langfuse<br/><i>part of ClickHouse</i>"]
         LangSmith["LangSmith<br/><i>commercial</i>"]
-        Braintrust["Braintrust<br/><i>$800M valuation</i>"]
+        Braintrust["Braintrust<br/><i>$80M Series B, Feb 2026</i>"]
         Phoenix["Arize Phoenix<br/><i>Dynatrace deal pending</i>"]
     end
     subgraph L6["Layer 6: Agent Orchestration"]
@@ -166,8 +181,8 @@ graph TD
         vLLM["vLLM<br/><i>74K stars</i>"]
         SGLang["SGLang<br/><i>structured generation</i>"]
         Ollama["Ollama<br/><i>166K stars</i>"]
-        Together["Together AI<br/><i>$3.3B valuation</i>"]
-        Fireworks["Fireworks AI<br/><i>$4B valuation</i>"]
+        Together["Together AI"]
+        Fireworks["Fireworks AI"]
     end
 
     L7 --> L6
@@ -178,7 +193,7 @@ graph TD
     L2 --> L1
 ```
 
-> **Snapshot note:** ownership, lifecycle, and version facts here were re-verified in September 2026, where the project publishes them. Star counts and valuations drift monthly and were not individually re-checked; treat them as directional. Ownership changes are the ones that alter a buying decision, and they are listed in **Churn since March 2026** above.
+> **Snapshot note:** ownership, lifecycle, and version facts here were re-verified in September 2026, where the project publishes them. Star counts drift monthly and were not individually re-checked; treat them as directional. Ownership changes are the ones that alter a buying decision, and they are listed in **Churn since March 2026** above.
 
 ### Layer 1: Inference and Serving
 
@@ -189,8 +204,8 @@ These tools run LLMs on hardware. You only need this layer if you self-host mode
 | **[vLLM](https://github.com/vllm-project/vllm)** | High-throughput LLM serving with PagedAttention for efficient KV-cache management. Supports distributed inference across NVIDIA, AMD, Intel, and TPU. Now part of the PyTorch ecosystem. | 74K stars | Self-hosted production GPU inference at scale. The de facto standard. |
 | **[SGLang](https://github.com/sgl-project/sglang)** | Serving engine built for structured generation and agent loops. RadixAttention reuses the KV cache across requests that share a prefix -- a fixed system prompt, tool definitions, conversation history. OpenAI-compatible API. | v0.5.18 | Production serving where prompts repeat and output is constrained. The strongest alternative to vLLM for agentic workloads. |
 | **[Ollama](https://github.com/ollama/ollama)** | Makes local LLM running trivial: `ollama pull model && ollama run model`. Wraps llama.cpp in a clean CLI and API. 52M monthly downloads in Q1 2026. | 166K stars | Developer-local inference, privacy-sensitive workloads, offline-capable workflows, prototyping without API costs. |
-| **[Together AI](https://www.together.ai/)** | Cloud inference with 200+ models, large-scale GPU clusters, LoRA and full fine-tuning support. ~$1B annualized revenue. | $3.3B valuation | Broad model selection with fine-tuning flexibility. Managed infrastructure for teams without GPU expertise. |
-| **[Fireworks AI](https://fireworks.ai/)** | Ultra-fast inference (13T+ tokens/day, ~180K RPS) with custom FireAttention CUDA kernels. Founded by the PyTorch team. $280M ARR. | $4B valuation | Latency-critical production inference. Multi-LoRA serving for fine-tuned model variants. |
+| **[Together AI](https://www.together.ai/)** | Cloud inference with 200+ models, large-scale GPU clusters, LoRA and full fine-tuning support. Reported ~$1B annualized revenue ([Sacra, February 2026](https://sacra.com/c/together-ai)). | SaaS | Broad model selection with fine-tuning flexibility. Managed infrastructure for teams without GPU expertise. |
+| **[Fireworks AI](https://fireworks.ai/)** | Ultra-fast inference with custom FireAttention CUDA kernels. Founded by the PyTorch team. | SaaS | Latency-critical production inference. Multi-LoRA serving for fine-tuned model variants. |
 
 **When to skip this layer:** If you exclusively use API providers (OpenAI, Anthropic, Google) and have no plans to self-host or fine-tune models.
 
@@ -300,7 +315,7 @@ The most under-invested layer in most AI applications, and arguably the most imp
 |---|---|---|---|
 | **[Langfuse](https://github.com/langfuse/langfuse)** | Part of ClickHouse | Open-source LLM engineering platform: tracing, prompt management, evaluations, datasets. MIT-licensed. Self-hostable. Integrates with OpenTelemetry, LangChain, OpenAI SDK, LiteLLM. #1 most-starred open-source LLMOps tool. | Teams wanting open-source, self-hosted observability. Avoiding vendor lock-in. Budget-conscious teams (50K observations/month free). |
 | **[LangSmith](https://www.langchain.com/langsmith)** | Commercial | The first-party platform for LangChain and LangGraph: tracing, evals, prompt versioning, and deployment. Tightest integration with the LangChain stack by construction. | Teams already committed to LangChain or LangGraph. Weakest fit if you are deliberately framework-independent -- it pulls observability back inside the framework. |
-| **[Braintrust](https://www.braintrust.dev/)** | $800M valuation ($80M Series B, Feb 2026) | AI observability platform integrating eval into the development workflow. Experiment tracking, side-by-side comparison, regression detection in CI, production monitoring. Custom scoring (LLM-judge, code, human). Used by Notion, Stripe, Vercel, Replit. | End-to-end commercial eval + observability. Teams that want a single platform for experimentation through production. The funding round is a durability signal: a managed option unlikely to disappear. |
+| **[Braintrust](https://www.braintrust.dev/)** | $80M Series B (Feb 2026) | AI observability platform integrating eval into the development workflow. Experiment tracking, side-by-side comparison, regression detection in CI, production monitoring. Custom scoring (LLM-judge, code, human). Used by Notion, Stripe, Vercel, Replit. | End-to-end commercial eval + observability. Teams that want a single platform for experimentation through production. The funding round is a durability signal: a managed option unlikely to disappear. |
 | **[Arize Phoenix](https://github.com/Arize-ai/phoenix)** | 9K stars | Open-source AI observability accepting traces via standard OTLP (OpenTelemetry). Tracing, LLM-as-judge eval, dataset management, experiment tracking. Runs locally or in cloud. 25+ framework integrations. | Teams already using OpenTelemetry. Local-first eval and experimentation (runs in Jupyter notebooks). Caveat: the Dynatrace acquisition leaves Phoenix's long-term support open -- see the churn table. |
 
 **Portability requirement:** OpenTelemetry's GenAI semantic conventions are the one portability standard in this layer. Treat OTel support as a hard buying requirement: it is what lets you replace the observability platform without re-instrumenting the application. This matters more here than in any other layer, because the 2026 consolidations above (ClickHouse/Langfuse, Dynatrace/Arize, Mintlify/Helicone) all happened inside a single year.
@@ -309,7 +324,7 @@ The most under-invested layer in most AI applications, and arguably the most imp
 
 ---
 
-## 4. Composition Patterns
+## Composition Patterns
 
 The most effective AI-native stacks compose best-in-class tools from multiple layers rather than relying on a single framework. Here are three proven compositions:
 
@@ -381,7 +396,7 @@ graph TD
 
 ---
 
-## 5. Recommendations
+## Recommendations
 
 ### Immediate (every AI project)
 
@@ -411,7 +426,7 @@ A worked example of the discipline: a self-reflective agent loop (ingest, plan, 
 
 ---
 
-## 6. The Hard Truth
+## The Hard Truth
 
 The AI framework ecosystem is a **marketing war disguised as a technology landscape.** Most frameworks exist because a company (OpenAI, Google, Microsoft) needs a distribution channel for its models, or because a startup (LangChain, LlamaIndex, CrewAI) needs to build a commercial platform on top of open-source adoption. This is not inherently bad, but it means the frameworks are optimized for *adoption* (easy demos, impressive GitHub stars, conference talks) rather than *production reliability* (debuggability, stability, performance under load).
 
@@ -421,7 +436,7 @@ The frameworks listed in this document are real, production-grade tools that sol
 
 ---
 
-## 7. Summary Checklist
+## Summary Checklist
 
 | Question | Good Answer | Bad Answer |
 |---|---|---|
@@ -440,15 +455,13 @@ The frameworks listed in this document are real, production-grade tools that sol
 
 ## Field Notes from an Operating Estate
 
-Three observations from a practitioner operating an estate of roughly a dozen agent harnesses on one workstation. Abstracted to patterns; the identifying detail is deliberately dropped.
-
-**September 2026 -- a reuse-before-invention gate at the commit.** The estate enforces reuse-before-invention with a deterministic pre-commit check rather than a policy sentence. Any commit that adds or edits a planning document is refused unless the plan declares in writing either the existing standard it adopts or the reason no existing pattern fits. The check tests shape, not truth: it cannot tell whether a reuse declaration is honest, and a false one passes. What it buys is that the question is answered at authoring time, in writing, where a reviewer can see it -- and that every exception is greppable, so no separate exception ledger is needed. The gate has no off-switch; the only way past it is to edit the gate itself, which is loud and lands in history.
+Two observations from a practitioner operating an estate of roughly a dozen agent harnesses on one workstation. Abstracted to patterns; the identifying detail is deliberately dropped.
 
 **August 2026 -- a phase cannot be closed without an evidence record.** Before any phase is called done, the estate requires a small machine-readable record listing what the run claims it used, with each entry labelled against expectation. A missing record is a hard failure in every mode -- no record, no close. A record that is present but carries a wrong-version or gap label warns first, and fails only after a planted-defect test proved the gate detects what it is supposed to detect and a fleet measurement showed the requirement was already satisfiable. The estate's own note on it is blunt: the record is a claim, never an attestation. It proves the agent typed the right names, not that the work happened.
 
 **September 2026 -- the core that outlives the backends.** The estate's newest design is a self-reflective agent loop (ingest, plan, execute, assess, reflect) built as a small engine that imports only the standard library, with every moving part -- model provider, memory store, tool runner, work intake, evaluator -- behind a fixed interface and supplied as a swappable adapter. No framework, no vendor SDK, no provider dependency in the core. Two rules keep it that way: a new backend is an adapter behind an existing seam rather than a change to the core, and adding a new seam is a deliberate architectural event, not a routine commit.
 
-## 8. References
+## References
 
 ### Practitioner Articles and Discussions
 
@@ -462,12 +475,14 @@ Three observations from a practitioner operating an estate of roughly a dozen ag
 - [Top 5 LiteLLM Alternatives in 2026 (Maxim)](https://www.getmaxim.ai/articles/top-5-litellm-alternatives-in-2026/) -- LiteLLM limitations and gateway landscape analysis
 - [Best Vector Databases 2026 (Firecrawl)](https://www.firecrawl.dev/blog/best-vector-databases) -- Vector DB comparison with pricing and performance benchmarks
 - [Fireworks AI vs Together AI (Northflank)](https://northflank.com/blog/fireworks-ai-vs-together-ai) -- Inference provider comparison
+- [Together AI revenue, valuation and funding (Sacra, 2026)](https://sacra.com/c/together-ai) -- Reported annualized revenue for the inference provider, with the funding history behind it
 - [Choosing an LLM Inference Engine (leetllm, 2026)](https://leetllm.com/blog/llm-inference-engine-comparison-2026) -- vLLM, SGLang, TensorRT-LLM, Ollama, and llama.cpp release lines and trade-offs
 - [LLM Inference Servers Compared (TensorFoundry)](https://tensorfoundry.io/blog/llm-inference-servers-compared) -- SGLang's RadixAttention advantage and the Hugging Face TGI archive
 - [LangChain and LangGraph: Critical Vulnerabilities in AI Orchestration (Cloud Security Alliance, Mar 2026)](https://labs.cloudsecurityalliance.org/research/csa-research-note-langchain-langgraph-vulnerabilities-202603) -- The "LangDrained" disclosure and the dependency-surface argument
 
 ### Churn and lifecycle records (2026)
 
+- [ClickHouse raises $400M Series D and acquires Langfuse (ClickHouse, 16 Jan 2026)](https://clickhouse.com/blog/clickhouse-raises-400-million-series-d-acquires-langfuse-launches-postgres) -- The primary announcement of the $400M round and the Langfuse acquisition, in one statement
 - [OpenAI API Deprecations](https://developers.openai.com/api/docs/deprecations) -- Official record of the Agent Builder, reusable-prompt, and Evals shutdowns on 30 Nov 2026
 - [Welcome to ADK 2.0 (adk.dev)](https://adk.dev/2.0) -- General-availability dates for ADK 2.0 across Python, Go, and TypeScript
 - [AI Agent Observability 2026: Tracing & Monitoring Stack (Digital Applied)](https://www.digitalapplied.com/blog/ai-agent-observability-2026-tracing-monitoring-stack-guide) -- ClickHouse's acquisition of Langfuse and Braintrust's Series B, with the durability read for each
@@ -517,4 +532,4 @@ Three observations from a practitioner operating an estate of roughly a dozen ag
 
 ---
 
-*Last reviewed: September 2026. Changed in this revision: added a churn table of the 2026 acquisitions, mergers, and shutdowns; corrected superseded frameworks, versions, and star counts; added the new entrants; recounted the products mapped across the seven layers; and replaced the unsourced compliance figures carried over from the previous revision.*
+*Last reviewed: September 2026. Changed in this revision: added a churn table of the 2026 acquisitions, mergers, and shutdowns; corrected superseded frameworks, versions, and star counts; added the new entrants; recounted the products mapped across the seven layers; removed a duplicated reuse-before-invention field note; added the framework-adoption spectrum; and cut the funding and throughput figures whose sources did not carry them, keeping only the two a primary or attributed source states.*
