@@ -1,24 +1,19 @@
-# Evaluation-Driven Development: Building the Measurement Infrastructure Your LLM System Cannot Ship Without
+# Evaluation-Driven Development: Build the Measurement Before the Architecture
 
-Every other document in this suite tells you to evaluate. This one tells you how.
+**Thesis:** Evaluation is not a gate you pass at the end of a project; it is the specification you build against, and the only honest way to know whether an LLM system works.
 
----
+**Prerequisites:** [LLM Fundamentals for Practitioners](llm-fundamentals-for-practitioners.md) (sampling, temperature, why the same input gives different outputs), [Prompt Engineering](prompt-engineering.md) (how a prompt states intent). This document assumes a system that produces output and a person who cares whether that output is good.
 
-## The Tension: You Cannot Improve What You Cannot Measure
+**Reading time:** 26 minutes
 
-There is a contradiction at the heart of most LLM projects. Teams spend weeks choosing models, designing prompts, and building RAG pipelines -- then validate their work by running a handful of inputs and checking whether the output "looks right." This is **vibes-based development**, and it is the default workflow for the majority of production LLM systems today.
-
-The contradiction is not that teams skip evaluation. It is that they treat evaluation as a phase that comes *after* architecture -- a quality gate before deployment. This gets the dependency backwards. Evaluation must come *before* architecture, because without measurement, every architectural decision is a guess. You cannot know whether RAG improves your system if you have no baseline. You cannot know whether a prompt change helps if you have no regression suite. You cannot know whether switching from GPT-4o to Claude Sonnet saves money without sacrificing quality if you have no way to define "quality" in the first place.
-
-The [Pragmatic Engineer's guide to LLM evals](https://newsletter.pragmaticengineer.com/p/evals) frames this as three gulfs that vibes-based development cannot cross:
-
-| Gulf | What It Means | Why Vibes Fail |
-|------|--------------|----------------|
-| **Comprehension** | Gap between developer understanding and system behavior at scale | You tested 10 inputs; production sees 10,000 daily |
-| **Specification** | Gap between intended behavior and what prompts actually instruct | Your prompt does not mean what you think it means |
-| **Generalization** | Gap between well-written prompts and reliable cross-input performance | Edge cases are the norm, not the exception |
-
-Evaluation-driven development (EDD) inverts the traditional sequence. Instead of Build -> Evaluate -> Ship, the sequence becomes:
+| What teams assume | What actually happens |
+|---|---|
+| "We will add evaluation once the product stabilises" | Evaluation is the stabilising force. Without it every change is an unmeasured roll of the dice, and the system never stops changing |
+| "A higher eval score means a better product" | Generic metrics do not predict user satisfaction. ROUGE, METEOR, BERTScore and G-Eval are [unreliable or impractical for production summarisation evaluation](https://eugeneyan.com/writing/evals/) |
+| "One judge can grade all eight quality dimensions" | One judge asked for eight dimensions in one call lets a strong dimension inflate the weak ones. [Anthropic's guidance](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents) is one isolated judge per dimension |
+| "Our accuracy improved from 87% to 91%, so we improved" | On 100 examples a 90% result carries a 95% interval of roughly 83% to 95%. A 4-point move sits inside that interval |
+| "A 0-10 score gives more signal than pass/fail" | The 0-10 scale gave the weakest agreement with human graders (ICC 0.805) of the scales tested; 0-5 gave the strongest (ICC 0.853) ([grading-scale study](https://arxiv.org/abs/2601.03444)) |
+| "A green test suite means the deployed system works" | The suite and the deployment answer different questions. See the [field notes](#field-notes-from-an-operating-estate): two source-level suites were green for two days while the deployed service returned errors |
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#f0f4e8', 'tertiaryColor': '#fef3e2', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
@@ -33,75 +28,105 @@ graph LR
     style EDD fill:#e8f4f8,stroke:#4a90d9
 ```
 
-This is the **eval flywheel**: error analysis surfaces failure modes, failure classification prioritizes them, eval construction makes them measurable, targeted improvement fixes them, and validation confirms the fix without regressions. Each rotation tightens the system. The flywheel is borrowed from [Hamel Husain's field guide](https://hamel.dev/blog/posts/field-guide/), where a case study improved a chatbot from 33% to 95% success rate -- not by rewriting the architecture, but by identifying that date-handling failures affected 66% of conversations and writing a single targeted fix.
+---
+
+## The Core Tension
+
+Most LLM projects share one contradiction. Teams spend weeks choosing models, designing prompts, and building retrieval pipelines, then validate the work on a handful of inputs by checking whether the output "looks right". This is **vibes-based development**, still the default workflow for a large share of production LLM systems.
+
+The contradiction is not that teams skip evaluation. It is that they treat it as a phase *after* architecture, a quality gate before deployment, which puts the dependency the wrong way round. Evaluation must come *before* architecture, because without measurement every architectural decision is a guess: no baseline, no way to know whether retrieval helps; no regression suite, no way to know whether a prompt change helps; no definition of "quality", no way to know whether a cheaper model is a saving.
+
+The [Pragmatic Engineer's guide to LLM evals](https://newsletter.pragmaticengineer.com/p/evals) frames this as three gulfs that vibes-based development cannot cross:
+
+| Gulf | What it means | Why vibes fail |
+|---|---|---|
+| **Comprehension** | Gap between developer understanding and system behaviour at scale | You tested 10 inputs; production sees 10,000 a day |
+| **Specification** | Gap between intended behaviour and what the prompt actually instructs | Your prompt does not mean what you think it means |
+| **Generalisation** | Gap between a well-written prompt and reliable performance across inputs | Edge cases are the norm, not the exception |
+
+Evaluation-driven development (EDD) inverts the sequence. Instead of Build, Evaluate, Ship, the loop is the **eval flywheel**: examine outputs, classify the failures, build a targeted eval, improve the system, validate the improvement, and repeat. Error analysis surfaces failure modes, classification orders them by cost, construction makes them measurable, improvement fixes them, and validation catches the regressions the fix caused.
+
+The flywheel comes from [Hamel Husain's field guide](https://hamel.dev/blog/posts/field-guide/): a case study improved a chatbot from 33% to 95% success without rewriting the architecture, by finding that date-handling failures affected 66% of conversations and writing one targeted fix.
+
+The tension never fully resolves: measurement costs time that feels like it should go into the product, and it produces numbers that are uncomfortable to read. The rest of this document is about paying that cost deliberately rather than accidentally.
 
 ---
 
-## Failure Taxonomy: How Evaluation Efforts Go Wrong
+## Failure Taxonomy
 
-Before prescribing how to build evals, it is worth understanding why most eval efforts fail. These failure modes are ordered by how commonly they appear in practice.
+Most evaluation efforts fail in one of eight ways. They are ordered by how often they appear.
 
 ### Failure Mode 1: The Vibes Check
 
-**What it looks like:** Developer changes a prompt, runs 3-5 test inputs, eyeballs the output, declares "LGTM," and ships. No dataset, no metrics, no record of what was tested.
+**What it looks like:** A developer changes a prompt, runs three to five inputs, eyeballs the output, declares it good, and ships. No dataset, no metric, no record of what was tested.
 
-**Why it happens:** Evaluation infrastructure feels like overhead when the system "works." The infinite surface area of possible inputs combined with subjective output quality makes comprehensive testing feel impossible, so teams default to spot-checking.
+**Why it happens:** Evaluation infrastructure feels like overhead when the system "works", the input space is unbounded, and quality is subjective. Teams default to spot-checking.
 
-**Consequence:** Every subsequent change is a roll of the dice. Regressions go undetected until users report them. The team has no way to compare prompt versions, model versions, or architectural changes.
+**Mechanism:** A spot check samples from the distribution the developer has in mind, never from the one the system will meet. Every later change is unmeasured, and regressions surface only when users report them.
 
 ### Failure Mode 2: The God Evaluator
 
-**What it looks like:** A single LLM-as-judge prompt that scores outputs on 8 dimensions simultaneously -- helpfulness, accuracy, tone, completeness, conciseness, safety, relevance, and creativity -- each on a 1-5 scale.
+**What it looks like:** A single judge prompt scores outputs on eight dimensions at once — helpfulness, accuracy, tone, completeness, conciseness, safety, relevance, creativity — each on a 1-5 scale.
 
-**Why it happens:** Teams want comprehensive coverage and assume a single evaluator is simpler than building multiple specialized ones.
+**Why it happens:** Teams want broad coverage and assume one evaluator is simpler than several.
 
-**Consequence:** The evaluator becomes unreliable across all dimensions. [Eugene Yan explicitly warns](https://eugeneyan.com/writing/product-evals/) against this pattern: the difference between a "3" and a "4" is subjective and varies across annotators. Multi-dimensional scoring creates false confidence without actionability. When the overall score drops from 3.7 to 3.4, which dimension caused it? What should the team fix?
+**Mechanism:** All dimensions share one generation, so a strong dimension pulls the weak ones up. [Eugene Yan warns](https://eugeneyan.com/writing/product-evals/) that the difference between a "3" and a "4" is subjective and varies between annotators. When the overall score drops from 3.7 to 3.4, nobody can say which dimension caused it or what to fix.
 
 ### Failure Mode 3: The Generic Metric Trap
 
-**What it looks like:** Team adopts off-the-shelf metrics (helpfulness, factuality, coherence) without validating that they correlate with their specific notion of quality.
+**What it looks like:** The team adopts off-the-shelf metrics (helpfulness, factuality, coherence) without checking that they track the team's own definition of quality.
 
-**Why it happens:** Framework documentation showcases these metrics as ready-to-use. Building custom metrics requires domain expertise and labeled data that teams do not yet have.
+**Why it happens:** Framework documentation presents these metrics as ready to use. A custom metric needs domain expertise and labelled data the team does not have yet.
 
-**Consequence:** High scores on generic metrics do not predict user satisfaction. [Eugene Yan's eval task analysis](https://eugeneyan.com/writing/evals/) demonstrates that ROUGE, METEOR, BERTScore, and G-Eval are "unreliable and/or impractical" for production summarization evaluation. Teams optimize for metrics that do not matter while neglecting dimensions that do.
+**Mechanism:** The metric becomes the target. The team optimises for the metric and the product does not improve, because the metric was never a proxy for what the user wanted. This is Goodhart's law with an API bill.
 
 ### Failure Mode 4: Self-Evaluation Bias
 
-**What it looks like:** The same model that generates outputs also evaluates them, or the judge model comes from the same family as the generator.
+**What it looks like:** The model that generates the output also grades it, or the judge comes from the same model family as the generator.
 
-**Why it happens:** Convenience. If you already have GPT-4o generating outputs, using GPT-4o to judge them requires no additional API setup.
+**Why it happens:** Convenience. If one model already generates, using it to judge needs no extra setup.
 
-**Consequence:** LLMs exhibit systematic self-preference bias. [Martin Fowler's patterns catalog](https://martinfowler.com/articles/gen-ai-patterns/) identifies self-evaluation as a known anti-pattern where models mask errors through false confidence and reinforce their own biases. Use a judge from a different model family than the generator.
+**Mechanism:** Models prefer their own text. GPT-4 rated its own outputs favourably in 87.8% of cases against 47.6% for human evaluators ([Panickssery et al., NeurIPS 2024](https://arxiv.org/abs/2404.13076)), and the bias tracks self-recognition: the better a model identifies its own style, the more it inflates its own scores. The mechanism is perplexity — stylistically familiar text scores higher regardless of quality.
+
+Two 2026 results widen the picture. [Lu et al.](https://arxiv.org/abs/2512.02304) tested 37 models across 7 families on 9 benchmarks: cross-family verification beats both self-verification and same-family verification, and the benefit shrinks as solver and verifier converge. A diagnostic study of 100 real research tasks found **uncorrected self-awareness** in 660 of 800 analyses (82.5%) — the agent identified its own fatal flaw, wrote it down, and reported the conclusion anyway ([AutoResearchEval, 2026](https://arxiv.org/abs/2608.14905)). Detecting a problem and acting on it are separate abilities.
 
 ### Failure Mode 5: Overfitting the Eval Set
 
-**What it looks like:** Team iteratively improves prompts by running them against the same 50 test cases until scores reach 95%. Production performance does not match.
+**What it looks like:** The team improves prompts against the same 50 cases until the score reaches 95%. Production performance does not match.
 
-**Why it happens:** The eval set is both the development set and the test set. Without a held-out split, every optimization cycle leaks information about the test cases into the prompt.
+**Why it happens:** The eval set is both the development set and the test set. Without a held-out split, every optimisation cycle leaks information about the test cases into the prompt.
 
-**Consequence:** The prompt is tuned to 50 specific inputs, not to the distribution of production traffic. This is the LLM equivalent of overfitting a model to its training data.
+**Mechanism:** The prompt is tuned to 50 specific inputs rather than to the traffic distribution. This is overfitting, with prompts instead of weights.
 
 ### Failure Mode 6: Statistical Naivety
 
-**What it looks like:** Team reports "accuracy improved from 87% to 91%" on a 100-example eval set without confidence intervals, significance tests, or acknowledgment that the improvement might be noise.
+**What it looks like:** The team reports "accuracy improved from 87% to 91%" on 100 examples, with no interval, no significance test, and no acknowledgement that the difference may be noise.
 
-**Why it happens:** Traditional software testing is deterministic -- a test either passes or fails. LLM evaluation is stochastic, but teams apply deterministic reasoning.
+**Why it happens:** Traditional software testing is deterministic: a test passes or fails. LLM evaluation is stochastic, and teams apply deterministic reasoning to it.
 
-**Consequence:** Teams ship changes that produced no real improvement, or revert changes that actually helped. An [ICML 2025 spotlight paper](https://arxiv.org/abs/2503.01747) proved that standard CLT-based confidence intervals fail with fewer than ~100 datapoints, producing error bars that are far too small and giving a false sense of precision.
+**Mechanism:** Two independent sources of variance are ignored: sampling (the examples are a sample, not the population) and model noise (the same example can pass on one run and fail on the next). [Wang et al.](https://arxiv.org/abs/2512.21326) show model-sampling variance can exceed example-sampling variance, so an eval that holds examples fixed and ignores generation noise reports an interval that is too narrow for the wrong reason. [An ICML 2025 spotlight paper](https://arxiv.org/abs/2503.01747) found standard central-limit-theorem intervals fail below roughly 100 data points, producing error bars far too small. [NIST's January 2026 guidance on automated benchmark evaluation](https://www.nist.gov/news-events/news/2026/01/towards-best-practices-automated-benchmark-evaluations) recommends reporting uncertainty rather than a bare score, and [Wu et al.](https://arxiv.org/abs/2601.20251) give statistically guaranteed intervals for this setting.
 
 ### Failure Mode 7: The Tool Trap
 
-**What it looks like:** Team evaluates 5 evaluation frameworks, builds elaborate infrastructure, configures dashboards -- but never actually examines their own model outputs.
+**What it looks like:** The team evaluates five frameworks, builds elaborate infrastructure, and configures dashboards, but never examines its own model outputs.
 
-**Why it happens:** Building infrastructure feels productive. Reading 200 model outputs feels tedious.
+**Why it happens:** Building infrastructure feels productive. Reading 200 outputs feels tedious.
 
-**Consequence:** [Eugene Yan's central thesis](https://eugeneyan.com/writing/eval-process/) is that process discipline beats tool sophistication. "Adding another tool, metric, or LLM-as-judge will sidestep fundamental process failures." The highest-ROI evaluation activity is not building infrastructure -- it is reading outputs and classifying failures.
+**Mechanism:** Tooling moves the failure later without removing it. [Eugene Yan's central thesis](https://eugeneyan.com/writing/eval-process/) is that process discipline beats tool sophistication: "Adding another tool, metric, or LLM-as-judge will sidestep fundamental process failures."
+
+### Failure Mode 8: The Unmeasured Capability Claim
+
+**What it looks like:** Somebody writes down a property of the system — "this system is self-improving", "this system is auditable", "this pipeline is reproducible" — and nothing computes it. The claim is a sentence, not a check.
+
+**Why it happens:** A capability claim is the most consequential thing known about a system and the least durable. Written down, it stops being true the day the system changes and nothing notices; re-derived by hand, it costs a full reading every time somebody asks.
+
+**Mechanism:** Neither form is current or reusable, so the knowledge does not compound. Compute the claim from a recorded structure — components, typed edges, attached checks — so the answer survives the next change and is stale only as far as the map is stale. Treat the written claim as a cache a check recomputes and diffs, and fail the build on a mismatch.
 
 ---
 
 ## The Eval Maturity Spectrum
 
-Not every system needs the same evaluation rigor. The appropriate level depends on the stakes, traffic, and rate of change. But every system should know where it sits on this spectrum and what the next level requires.
+Not every system needs the same rigour; the right level depends on the stakes, the traffic, and the rate of change. Every system should know where it sits and what the next level requires.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#f0f4e8', 'tertiaryColor': '#fef3e2', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
@@ -124,49 +149,61 @@ graph TD
     style L5 fill:#f0f4e8,stroke:#6b8e4e
 ```
 
-| Level | Characteristics | Appropriate When | Investment |
-|-------|----------------|-----------------|------------|
-| **0: Vibes** | Manual spot-checking, no recorded results | Never (this is the anti-pattern) | Zero |
-| **1: Assertions** | Code-based checks on every commit | Structured output, classification tasks | Hours |
-| **2: Golden Dataset** | 50-200 labeled examples, automated regression | Any system approaching production | Days |
-| **3: LLM-as-Judge** | Per-dimension binary evaluators with expert alignment | Subjective quality, open-ended generation | 1-2 weeks |
-| **4: Statistical Rigor** | Confidence intervals, held-out sets, power analysis | High-stakes decisions, model comparisons | 2-4 weeks |
-| **5: Continuous Production** | Sampling, drift detection, business metric correlation | Production traffic, revenue-impacting systems | Ongoing |
+| Level | Characteristics | Appropriate when | Investment |
+|---|---|---|---|
+| **0: Vibes** | Manual spot-checking | Never — this is the anti-pattern | Zero |
+| **1: Assertions** | Code-based checks | Structured output, classification | Hours |
+| **2: Golden Dataset** | 50-200 labelled examples | Any system approaching production | Days |
+| **3: LLM-as-Judge** | Per-dimension binary judges | Subjective quality, open-ended generation | 1-2 weeks |
+| **4: Statistical Rigor** | Intervals, held-out sets | High-stakes decisions, model comparison | 2-4 weeks |
+| **5: Continuous Production** | Sampling, drift, alerting | Production traffic, revenue impact | Ongoing |
 
-The minimum viable evaluation for any system approaching production is Level 2. Levels 3-5 should be pursued in sequence as the system matures and stakes increase.
+Level 2 is the minimum viable evaluation for any system approaching production. Levels 3 to 5 follow in sequence as stakes rise.
+
+**Level 4 is not "add error bars".** It is the point where you can say what a number means; the precision available from a small set is lower than most teams assume. The intervals below are Wilson score 95% intervals for an observed 90% pass rate:
+
+| Examples | Passes | 95% interval | Half-width |
+|---|---|---|---|
+| 10 | 9 | 60% – 98% | ±19 points |
+| 20 | 18 | 70% – 97% | ±14 points |
+| 50 | 45 | 79% – 96% | ±9 points |
+| 100 | 90 | 83% – 95% | ±6 points |
+| 200 | 180 | 85% – 93% | ±4 points |
+| 500 | 450 | 87% – 92% | ±3 points |
+| 1000 | 900 | 88% – 92% | ±2 points |
+
+These figures are arithmetic on the Wilson interval, not a measurement of any system, and they make one point: at 20 examples you cannot distinguish a good system from a mediocre one, and at 100 a 4-point change is still inside the noise. To separate two close systems you need hundreds of examples, or a paired design that controls for per-example difficulty.
+
+**Level 3 has a ceiling that isolation does not fix.** A judge can be perfectly isolated and still be wrong: predicting failure well does not prevent it. [Vasudev et al.](https://arxiv.org/abs/2602.03338) report a binary critic with strong offline accuracy (AUROC 0.94) that caused a 26-percentage-point collapse on one model and near-zero effect on another under the same intervention policy. They name the mechanism, a **disruption-recovery tradeoff**: interventions recover trajectories that would have failed and disrupt trajectories that would have succeeded. Offline judge accuracy is therefore not sufficient evidence that a judge is safe to act on; a pilot of roughly 50 tasks can forecast the direction before deployment.
 
 ---
 
-## Principles: Building the Eval Infrastructure
+## Design Principles
 
-### Principle 1: Start with Error Analysis, Not Infrastructure
+### Principle 1: Start with error analysis, not infrastructure
 
-**Why it works:** You cannot build useful evals without knowing how your system fails. Generic metrics (helpfulness, coherence) measure dimensions that may not matter for your use case. Error analysis reveals the dimensions that do.
+**Why it works:** It counters Failure Mode 7 and Failure Mode 3. Reading outputs tells you which failures actually occur, the only reliable source for which metrics matter. Metrics chosen before error analysis are guesses about your own system.
 
 **How to apply:** Follow the [Pragmatic Engineer's open coding method](https://newsletter.pragmaticengineer.com/p/evals):
 
-1. Collect 100+ diverse production-like traces (inputs, outputs, intermediate steps)
-2. Read every trace. Annotate with bottom-up observations -- do not use predefined categories
-3. Group observations into 5-10 failure themes (axial coding)
-4. Quantify: count frequency of each failure mode
-5. Build evals targeting the top 3 failure modes by frequency
+1. Collect 100+ diverse production-like traces (inputs, outputs, intermediate steps).
+2. Read every trace. Annotate with bottom-up observations — do not use predefined categories.
+3. Group observations into 5-10 failure themes (axial coding).
+4. Quantify: count the frequency of each failure mode.
+5. Build evals targeting the top three failure modes by frequency.
 
-This process typically takes 2-3 days and produces more actionable insight than any framework. [Hamel Husain recommends](https://hamel.dev/blog/posts/evals/) allocating 60-80% of development time to error analysis and evaluation, not infrastructure.
+The process takes two to three days and produces more actionable insight than any framework. [Hamel Husain recommends](https://hamel.dev/blog/posts/evals/) allocating 60-80% of development time to error analysis and evaluation rather than infrastructure.
 
-### Principle 2: Build Golden Datasets Through Domain Expert Curation
+### Principle 2: Build golden datasets through domain expert curation
 
-**Why it works:** Golden datasets create a stable reference point. Without one, every evaluation is relative -- you can measure change but not quality.
+**Why it works:** It counters Failure Mode 5. A held-out split makes overfitting visible: when the development set improves and the held-out set does not, you have tuned to your examples rather than to the problem. A golden dataset also creates a stable reference point — without one, every measurement is relative, and you can measure change but not quality.
 
-**How to apply:**
-
-**Size targets** vary by maturity stage. [Microsoft's copilot team](https://github.com/microsoft/promptflow-resource-hub/blob/main/sample_gallery/golden_dataset/copilot-golden-dataset-creation-guidance.md) recommends 100-150 examples for initial quality measurement. [Eugene Yan recommends](https://eugeneyan.com/writing/product-evals/) 200+ total with 50-100 explicit failure cases. For production systems, target 500-2,000 examples stratified by difficulty and input type.
-
-**Construction process:**
+**How to apply:** Size targets vary by maturity. [Microsoft's copilot team](https://github.com/microsoft/promptflow-resource-hub/blob/main/sample_gallery/golden_dataset/copilot-golden-dataset-creation-guidance.md) recommends 100-150 examples for initial quality measurement. [Eugene Yan recommends](https://eugeneyan.com/writing/product-evals/) 200+ with 50-100 explicit failure cases. For production systems, target 500-2,000 examples stratified by difficulty and input type.
 
 ```python
 # Golden dataset schema
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 class Difficulty(Enum):
@@ -188,25 +225,23 @@ class GoldenExample:
     expected_verdict: ExpectedVerdict
     source: str                    # "production", "synthetic", "expert-authored"
     annotator: str                 # who labeled this
-    notes: str = ""
-    metadata: dict = field(default_factory=dict)
 
 # Stratification targets for a 200-example dataset:
-# - 40% easy (80 examples) -- baseline sanity
+# - 40% easy (80 examples)   -- baseline sanity
 # - 35% medium (70 examples) -- realistic production traffic
-# - 25% hard (50 examples) -- adversarial and edge cases
+# - 25% hard (50 examples)   -- adversarial and edge cases
 # - At least 50 examples should be known failure cases
 ```
 
 **Critical rules:**
-- Never use synthetic questions when measuring real-world quality ([Microsoft's guidance](https://github.com/microsoft/promptflow-resource-hub/blob/main/sample_gallery/golden_dataset/copilot-golden-dataset-creation-guidance.md))
-- Generate organic failures by running smaller, less capable models -- synthetic defects are often out-of-distribution ([Eugene Yan](https://eugeneyan.com/writing/product-evals/))
-- Maintain a 75/25 development/held-out split. Never optimize against the held-out set
-- Refresh quarterly or after major system changes. [Criteria drift](https://arxiv.org/abs/2404.12272) means evaluation criteria change as you observe more outputs
+- Never use synthetic questions when measuring real-world quality ([Microsoft's guidance](https://github.com/microsoft/promptflow-resource-hub/blob/main/sample_gallery/golden_dataset/copilot-golden-dataset-creation-guidance.md)).
+- Generate organic failures by running smaller, less capable models — synthetic defects are often out of distribution ([Eugene Yan](https://eugeneyan.com/writing/product-evals/)).
+- Maintain a 75/25 development and held-out split. Never optimise against the held-out set.
+- Refresh quarterly or after major system changes. [Criteria drift](https://arxiv.org/abs/2404.12272) means evaluation criteria change as you observe more outputs.
 
-### Principle 3: Use Three Eval Types and Know When Each Applies
+### Principle 3: Use three eval types, and know when each applies
 
-**Why it works:** Different failure modes require different detection mechanisms. Forcing all evaluation through a single type creates blind spots.
+**Why it works:** It counters Failure Mode 3. Different failure modes need different detection mechanisms, and forcing all evaluation through one type creates blind spots.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#f0f4e8', 'tertiaryColor': '#fef3e2', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
@@ -228,9 +263,7 @@ graph TD
     style LJ fill:#fef3e2,stroke:#d4a574
 ```
 
-**How to apply:**
-
-**Type 1 -- Code-based deterministic checks.** Use when the failure can be verified with code. These are the cheapest and most reliable evals.
+**Type 1 — Code-based deterministic checks.** Use when code can verify the failure. These are the cheapest and most reliable evals.
 
 ```python
 # Code-based evals: run on every commit
@@ -238,10 +271,6 @@ def eval_structured_output(response: dict) -> bool:
     """Verify JSON schema compliance."""
     required_fields = {"answer", "confidence", "sources"}
     return required_fields.issubset(response.keys())
-
-def eval_date_extraction(output: str, expected: str) -> bool:
-    """Verify date was extracted correctly."""
-    return expected in output
 
 def eval_no_pii_leakage(output: str) -> bool:
     """Verify no SSN or credit card patterns in output."""
@@ -255,32 +284,17 @@ def eval_word_count(output: str, max_words: int = 500) -> bool:
     return len(output.split()) <= max_words
 ```
 
-**Type 2 -- Embedding-based similarity.** Use when approximate semantic match is sufficient -- summarization, paraphrasing, translation.
+**Type 2 — Embedding-based similarity.** Use when an approximate semantic match is sufficient: summarisation, paraphrasing, translation.
 
-```python
-from sentence_transformers import SentenceTransformer
-import numpy as np
+**Type 3 — LLM-as-judge.** Use for subjective quality dimensions where code-based checks are impossible. See Principle 4.
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
+The priority order is always code-based first, embedding-based second, LLM-as-judge last. If code can catch a failure, do not spend an API call on a judge.
 
-def eval_semantic_similarity(output: str, reference: str, threshold: float = 0.8) -> bool:
-    """Check semantic similarity against reference answer."""
-    embeddings = model.encode([output, reference])
-    similarity = np.dot(embeddings[0], embeddings[1]) / (
-        np.linalg.norm(embeddings[0]) * np.linalg.norm(embeddings[1])
-    )
-    return similarity >= threshold
-```
+### Principle 4: Build judges with binary verdicts and per-dimension isolation
 
-**Type 3 -- LLM-as-Judge.** Use for subjective quality dimensions where code-based checks are impossible. See Principle 4 for construction details.
+**Why it works:** It counters Failure Mode 2 and Failure Mode 4. Binary PASS/FAIL forces clarity about what matters, and per-dimension isolation stops one criterion contaminating another. This approach reaches [above 90% agreement with domain experts](https://hamel.dev/blog/posts/llm-judge/) within three iteration rounds, against multi-dimensional Likert scales that produce unreliable, unactionable scores.
 
-The priority order is always: code-based first, embedding-based second, LLM-as-judge last. If a failure can be caught with code, do not waste an API call on a judge.
-
-### Principle 4: Build LLM-as-Judge Evaluators with Binary Verdicts and Per-Dimension Isolation
-
-**Why it works:** Binary PASS/FAIL forces clarity about what matters. Per-dimension isolation prevents one criterion from contaminating another. This approach achieves [>90% agreement with domain experts](https://hamel.dev/blog/posts/llm-judge/) within 3 iteration rounds, compared to multi-dimensional Likert scales which produce unreliable, unactionable scores.
-
-**How to apply:** Follow [Hamel Husain's critique shadowing method](https://hamel.dev/blog/posts/llm-judge/):
+**How to apply:** Follow [Hamel Husain's critique shadowing method](https://hamel.dev/blog/posts/llm-judge/) to build each judge, then isolate them.
 
 ```python
 from anthropic import Anthropic
@@ -305,27 +319,18 @@ faithfulness violation.
 {response}
 </response>
 
-## Instructions
-1. List each factual claim in the response.
-2. For each claim, identify the supporting source passage or mark as UNSUPPORTED.
-3. Render your verdict.
-
 ## Output Format
 Return ONLY a JSON object:
 {{"claims": [
-    {{"claim": "...", "supported": true, "source_passage": "..."}},
-    {{"claim": "...", "supported": false, "source_passage": null}}
+    {{"claim": "...", "supported": true, "source_passage": "..."}}
   ],
   "verdict": "PASS" or "FAIL",
   "reason": "One sentence explaining the verdict"
 }}"""
 
 RELEVANCE_JUDGE = """You are evaluating whether an AI assistant's response
-directly addresses the user's question.
-
-## Task
-Determine if the response answers what was asked. A response that is
-accurate but off-topic is a relevance failure.
+directly addresses the user's question. A response that is accurate but
+off-topic is a relevance failure.
 
 ## Input
 <question>
@@ -335,11 +340,6 @@ accurate but off-topic is a relevance failure.
 <response>
 {response}
 </response>
-
-## Instructions
-1. Identify the core intent of the question.
-2. Determine whether the response addresses that intent.
-3. Render your verdict.
 
 ## Output Format
 Return ONLY a JSON object:
@@ -355,7 +355,7 @@ def run_judge(judge_prompt: str, **kwargs) -> dict:
     import json
     formatted = judge_prompt.format(**kwargs)
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",  # different family from generator
+        model="claude-sonnet-4-20250514",  # different family from the generator
         max_tokens=1024,
         temperature=0.0,
         messages=[{"role": "user", "content": formatted}],
@@ -378,110 +378,93 @@ def evaluate_response(question: str, response: str, context: str) -> dict:
     }
 ```
 
-**Validation:** Measure judge alignment against domain expert labels using Cohen's Kappa. Target 0.4-0.6 (substantial agreement) as a minimum, 0.7+ as excellent. Note that [human inter-rater reliability](https://eugeneyan.com/writing/product-evals/) often ranges 0.2-0.3 Kappa -- your automated judge need only match human consistency, not exceed it.
+**Validation:** Measure judge alignment against domain expert labels with Cohen's Kappa. Target 0.4-0.6 as a minimum, 0.7 or above as excellent. [Human inter-rater reliability](https://eugeneyan.com/writing/product-evals/) often ranges 0.2-0.3 Kappa — your judge need only match human consistency, not exceed it.
 
 **Key rules for judge construction:**
-- Use a judge from a different model family than the generator to avoid [self-evaluation bias](https://martinfowler.com/articles/gen-ai-patterns/)
-- Request chain-of-thought reasoning before the verdict ([improves judge quality significantly](https://www.evidentlyai.com/llm-guide/llm-as-a-judge))
-- Set temperature to 0.0 for consistency
-- Build specialized judges only after error analysis reveals which dimensions matter. See [LLM Role Separation: Executor vs Evaluator](docs/llm-role-separation-executor-evaluator.md) for the full isolation architecture
+- Use a judge from a different model family than the generator, to avoid [self-evaluation bias](https://martinfowler.com/articles/gen-ai-patterns/).
+- Request chain-of-thought reasoning before the verdict ([it improves judge quality](https://www.evidentlyai.com/llm-guide/llm-as-a-judge)).
+- Set temperature to 0.0 for reproducibility, and record the exact judge model and version beside every score. A judge updated under you changes your metric, not your system.
+- Do not let the judge see the requester's later turns. An evaluator shown a user's counterargument as a follow-up turn tends to endorse it ([Kim & Khashabi, EMNLP 2025 Findings](https://arxiv.org/abs/2509.16533)).
 
-### Principle 5: Apply Statistical Rigor to Every Metric
+### Principle 5: Apply statistical rigour to every metric
 
-**Why it works:** LLM outputs are stochastic. A 4% improvement on 100 examples might be noise. Without confidence intervals, you cannot distinguish signal from randomness. Without power analysis, you cannot know whether your eval set is large enough to detect the improvements you care about.
+**Why it works:** It counters Failure Mode 6. Without an interval you cannot tell signal from randomness; without power analysis you cannot know whether your set is large enough to detect the improvement you care about.
 
-**How to apply:**
+**How to apply:** Report a mean, an interval, and a sample size, always. Use paired comparisons when two systems meet the same examples, because pairing removes per-example difficulty from the comparison and buys precision for free.
 
 ```python
 import numpy as np
 from scipy import stats
 
-def binary_confidence_interval(
-    n_pass: int, n_total: int, confidence: float = 0.95
-) -> tuple[float, float]:
-    """Wilson score interval -- preferred over normal approximation
+def binary_interval(n_pass, n_total, confidence=0.95):
+    """Wilson score interval -- preferred over the normal approximation
     for binary outcomes, especially with small samples or extreme proportions."""
-    # scipy.stats.binom provides the Wilson interval via proportion_confint
     from statsmodels.stats.proportion import proportion_confint
-    lower, upper = proportion_confint(n_pass, n_total, alpha=1 - confidence, method="wilson")
-    return lower, upper
+    return proportion_confint(n_pass, n_total, alpha=1 - confidence, method="wilson")
 
-def paired_significance_test(
-    scores_a: list[float], scores_b: list[float]
-) -> dict:
+def paired_comparison(scores_a, scores_b):
     """Compare two systems on the same eval set using paired differences.
-    Paired tests are more powerful than unpaired because they control
-    for per-example difficulty variation."""
+    Paired tests control for per-example difficulty variation."""
     differences = [a - b for a, b in zip(scores_a, scores_b)]
     mean_diff = np.mean(differences)
     se_diff = np.std(differences, ddof=1) / np.sqrt(len(differences))
-    ci_lower = mean_diff - 1.96 * se_diff
-    ci_upper = mean_diff + 1.96 * se_diff
-
-    # Wilcoxon signed-rank test (non-parametric, no normality assumption)
     stat, p_value = stats.wilcoxon(differences, alternative="two-sided")
-
     return {
         "mean_difference": mean_diff,
         "standard_error": se_diff,
-        "ci_95": (ci_lower, ci_upper),
+        "ci_95": (mean_diff - 1.96 * se_diff, mean_diff + 1.96 * se_diff),
         "p_value": p_value,
-        "significant_at_05": p_value < 0.05,
         "n": len(differences),
     }
 
-def required_sample_size(
-    baseline_rate: float, minimum_detectable_effect: float,
-    alpha: float = 0.05, power: float = 0.80
-) -> int:
-    """How many examples do you need to detect a given improvement?
-    Detecting half-size effects requires 4x the samples (quadratic penalty)."""
+def required_sample_size(baseline_rate, minimum_detectable_effect,
+                         alpha=0.05, power=0.80):
+    """How many examples are needed to detect a given improvement?
+    Detecting a half-size effect needs four times the examples."""
     from statsmodels.stats.power import NormalIndPower
-    analysis = NormalIndPower()
-    # Effect size for proportions
     effect_size = minimum_detectable_effect / np.sqrt(
-        baseline_rate * (1 - baseline_rate)
-    )
-    n = analysis.solve_power(effect_size=effect_size, alpha=alpha, power=power)
+        baseline_rate * (1 - baseline_rate))
+    n = NormalIndPower().solve_power(
+        effect_size=effect_size, alpha=alpha, power=power)
     return int(np.ceil(n))
 
-# Example: you need to detect a 5% improvement from an 80% baseline
 # required_sample_size(0.80, 0.05) -> approximately 400 examples
 ```
 
-**Minimum reporting standard** ([Cameron Wolfe's statistical handbook](https://cameronrwolfe.substack.com/p/stats-llm-evals)): always report mean, standard error, sample size, and confidence interval. For model comparisons: paired differences, standard errors, confidence intervals, and score correlations.
+**Minimum reporting standard** ([Cameron Wolfe's statistical handbook](https://cameronrwolfe.substack.com/p/stats-llm-evals)): always report mean, standard error, sample size, and interval. For model comparisons, report paired differences, standard errors, intervals, and score correlations.
 
-**Critical thresholds:**
-- Below 100 examples: CLT-based confidence intervals are unreliable; use [Bayesian methods](https://arxiv.org/abs/2503.01747) or Wilson score intervals
-- 200 examples at 5% defect rate with 3% observed: 95% CI = 0.6-5.4% (inconclusive)
-- 400 examples at same rate: 95% CI = 1.3-4.7% ([conclusive](https://eugeneyan.com/writing/product-evals/))
+**Thresholds to carry in your head:**
+- Below 100 examples, central-limit-theorem intervals are unreliable. Use a Wilson interval for proportions, or a bootstrap ([Indeed Engineering's bootstrap approach](https://engineering.indeedblog.com/blog/2026/07/bootstrap-confidence-intervals-for-llm-evaluation)).
+- Bootstrap the *cluster*, not the row, when each example runs several times: resampling individual runs underestimates uncertainty, because runs of the same example are correlated.
+- 200 examples at a 5% defect rate, observing 3%: 95% interval 0.6% – 5.4% (inconclusive).
+- 400 examples at the same rate: 95% interval 1.3% – 4.7% ([conclusive](https://eugeneyan.com/writing/product-evals/)).
 
-### Principle 6: Choose Frameworks for What They Do Best
+### Principle 6: Choose frameworks for what they do best
 
-**Why it works:** No single framework covers all evaluation needs. Using the right tool for each job avoids building infrastructure that a framework already provides.
+**Why it works:** It counters Failure Mode 7. No single framework covers every evaluation need, and choosing per job avoids rebuilding what already exists.
 
-| Framework | Best For | Run on CI? | Self-Hosted? | Cost |
-|-----------|----------|------------|-------------|------|
-| **DeepEval** | CI/CD pipeline testing (pytest-native), 50+ built-in metrics | Yes (pytest plugin) | Yes (OSS) | Free + optional cloud |
-| **RAGAS** | RAG pipeline evaluation (faithfulness, context precision/recall) | Yes | Yes (OSS) | Free |
-| **Promptfoo** | Red teaming, security testing (OWASP/NIST presets) | Yes | Yes (OSS) | Free |
-| **Braintrust** | Production governance, release gating, human annotation workflows | Via API | Cloud only | Free tier: 1M spans |
+| Framework | Best for | Runs in CI? | Self-hosted? | Status, September 2026 |
+|---|---|---|---|---|
+| **[DeepEval](https://github.com/confident-ai/deepeval)** | Pytest-native LLM testing, agent metrics (task completion, tool correctness, step efficiency) | Yes (pytest plugin) | Yes (open source) | Version 4.x, whose 4.0 line added a local terminal trace inspector and agent loop-detection metrics ([changelog](https://deepeval.com/changelog/changelog-2026)). Pin a reviewed version — the default judge model changes between releases |
+| **[RAGAS](https://docs.ragas.io/en/stable/)** | Retrieval and RAG metrics (faithfulness, context precision and recall) | Yes | Yes (open source) | Version 0.4.x |
+| **[Promptfoo](https://www.promptfoo.dev/docs/red-team/)** | Adversarial red teaming and static scanning, with OWASP and NIST presets | Yes | Yes (open source) | [Acquired by OpenAI in March 2026](https://www.promptfoo.dev/blog/promptfoo-joining-openai). The open-source suite continues and stays multi-provider, but its roadmap now sits inside a frontier lab — weigh that if vendor neutrality matters |
+| **[Arize Phoenix](https://arize.com/docs/phoenix)** | OpenTelemetry-native tracing and local experimentation | Yes | Yes (open source) | Strong fit when you already emit OTLP traces |
+| **[Langfuse](https://langfuse.com/docs/scores/model-based-evals)** | Self-hosted tracing, datasets, and model-based scoring | Yes | Yes (open source) | A good default for teams avoiding vendor lock-in |
+| **[TruLens](https://www.trulens.org)** | OpenTelemetry-native tracing and evaluation for agents | Yes | Yes (open source) | Maintained in the open by Snowflake since its acquisition; still active |
+| **[Braintrust](https://www.braintrust.dev/docs/reference/autoevals)** | Release gating, human annotation workflows, production governance | Via API | Cloud only | Commercial platform, not open source |
 
 **When to use which:**
 
-- **Starting from zero?** DeepEval. Its pytest integration means evals run like tests. You can add `assert_test` to your existing test suite in minutes.
-- **Building a RAG pipeline?** RAGAS for retrieval-specific metrics, supplemented by custom code-based evals.
-- **Security and safety concerns?** Promptfoo for adversarial red teaming with pre-built attack datasets.
-- **Production governance with human review?** Braintrust for annotation workflows and release gating.
-- **Multiple needs?** Combine them. Use DeepEval for CI, RAGAS for RAG-specific metrics, and Braintrust for production monitoring. They are not mutually exclusive.
+- **Starting from zero?** DeepEval: `assert_test` drops into an existing pytest suite in minutes.
+- **Building retrieval, or already emitting OpenTelemetry traces?** RAGAS for retrieval metrics; Phoenix or TruLens to evaluate the traces you already have.
+- **Security, self-hosting, or release gating?** Promptfoo for adversarial red teaming, Langfuse for self-hosted scoring, Braintrust for human review and release gating.
+- **Several needs?** Combine them.
 
-**Cost awareness:** Evaluating 1,000 samples across 4 LLM-as-judge dimensions requires ~4,000 API calls. At $3/million input tokens with a 500-token average prompt, that is approximately $6 per eval run. This scales linearly. Budget for it.
+**Cost awareness:** evaluating 1,000 samples across four judge dimensions needs about 4,000 calls. At $3 per million input tokens with a 500-token average prompt, that is roughly $6 per run, scaling linearly. Remember the cost of the alternative: an unmeasured release.
 
-### Principle 7: Close the Loop with Production Monitoring
+### Principle 7: Close the loop with production monitoring
 
-**Why it works:** Offline evals tell you whether the system works on your dataset. Production monitoring tells you whether it works on your users' actual inputs. Model behavior drifts, user behavior shifts, and the world changes. Without continuous evaluation, you are blind to degradation.
-
-**How to apply:**
+**Why it works:** It counters the gap between offline and live behaviour. Offline evals tell you whether the system works on your dataset; production monitoring tells you whether it works on your users' inputs. Model behaviour drifts, user behaviour shifts, and the world changes.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'primaryColor': '#e8f4f8', 'primaryTextColor': '#1a1a2e', 'primaryBorderColor': '#4a90d9', 'lineColor': '#4a90d9', 'secondaryColor': '#f0f4e8', 'tertiaryColor': '#fef3e2', 'clusterBkg': '#f8f9fa', 'edgeLabelBackground': '#f8f9fa'}}}%%
@@ -504,105 +487,176 @@ sequenceDiagram
     A-->>S: Alert on-call / block deploys
 ```
 
-**Sampling strategy:** [Evidently AI recommends](https://www.evidentlyai.com/llm-guide/llm-as-a-judge) running LLM judges on 10% of production data at regular intervals. For high-traffic systems, stratified sampling ensures representation across user segments and input categories.
+**Sampling strategy:** [Evidently AI recommends](https://www.evidentlyai.com/llm-guide/llm-as-a-judge) running judges on 10% of production data at regular intervals. For high-traffic systems, stratified sampling keeps user segments and input categories represented.
 
-**Drift detection:** Monitor the distribution of judge verdicts over time. A sudden increase in FAIL rate for faithfulness indicates either a model change, a data change, or a prompt regression. Track per-slice to avoid aggregated metrics masking underperforming subgroups -- the [EDDOps reference architecture](https://arxiv.org/html/2411.13768v3) mandates slice-by-slice analysis.
+**Drift detection:** Monitor the distribution of judge verdicts over time. A sudden rise in the FAIL rate for faithfulness indicates a model change, a data change, or a prompt regression. Track per slice to stop aggregated metrics masking an underperforming subgroup — the [EDDOps reference architecture](https://arxiv.org/html/2411.13768v3) mandates slice-by-slice analysis.
 
-**Alerting thresholds:** Set alerts at 2 standard deviations below the rolling 7-day average for each eval dimension. Require a minimum sample size before alerting to avoid false positives from small batches.
+**Alerting thresholds:** Alert at two standard deviations below the rolling seven-day average for each dimension. Require a minimum sample size before alerting, or small batches produce false positives.
 
-**The eval-to-business-metric bridge:** The gap between "our faithfulness score is 92%" and "our users are satisfied" is the hardest to close. [Confident AI's MOF framework](https://www.confident-ai.com/blog/the-ultimate-llm-evaluation-playbook) recommends:
+**The eval-to-business-metric bridge:** The gap between "our faithfulness score is 92%" and "our users are satisfied" is the hardest to close. [Confident AI's metric-outcome-fit framework](https://www.confident-ai.com/blog/the-ultimate-llm-evaluation-playbook) recommends:
 
-1. Label 25-50 examples with both eval verdicts AND business outcomes (user satisfaction, task completion, support ticket generated)
-2. Measure alignment: target <5% combined false positive + false negative rate between eval verdicts and business outcomes
-3. Once alignment is validated, eval scores become reliable proxies for business metrics
-4. Track correlation graphs between eval pass rates and business KPIs over time
+1. Label 25-50 examples with both eval verdicts and business outcomes (user satisfaction, task completion, support ticket raised).
+2. Measure alignment: target under 5% combined false-positive and false-negative rate between eval verdicts and business outcomes.
+3. Track correlation between eval pass rates and business measures over time.
+
+### Principle 8: Name the tier — check the artifact you ship, not the code you wrote
+
+**Why it works:** It counters the most expensive misunderstanding here. A check that boots the service from source answers "is the code correct?"; a check that reads the deployed service answers "does the thing in use work now?" Both are valid, but only one finds the outage.
+
+**How to apply:** For every check, write down the tier it runs at and the address it reads. When a request says "end to end" and the plan scopes the work to a source-level test, stop and ask before building. Shrinking the ask to fit the plan is the failure mode; the plan is not the requirement.
+
+```python
+# Answers "is the code correct?" -- a valid check, NOT an end-to-end check
+def check_source_level():
+    app = build_app_from_source()
+    client = app.test_client()
+    return client.get("/health").status_code == 200
+
+# Answers "does the deployed thing work now?" -- reads what a person uses
+def check_deployed(address, real_config, real_store):
+    response = requests.get(f"{address}/health", timeout=5)
+    assert response.status_code == 200, response.text
+    assert real_store.ping(), "live data store unreachable"
+    return response.json()
+```
+
+---
+
+## Evaluation: Real-World Systems
+
+The table below grades the eval practices most often found in production agentic systems. The level refers to the maturity spectrum above.
+
+| Practice | Level | What it measures | Key weakness |
+|---|---|---|---|
+| Golden set of 50-200 curated examples in CI | 2 | Regression against known cases | Ceiling set by curation quality; drifts stale |
+| Per-dimension binary judges, cross-family | 3 | Subjective quality per dimension | Cost, latency, and the judge can be sycophantic to the requester |
+| Judge plus intervals, held-out set, power analysis | 4 | Whether a difference is real | Needs hundreds of examples for close comparisons |
+| A computed capability verdict re-derived from a recorded structure | 4-5 | Whether a claimed property still holds | Only as current as the underlying map |
+
+Two named sources make the isolation question concrete. **Anthropic's guidance** recommends grading each dimension with an isolated judge rather than one judge for all dimensions ([Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)). **Evidently's open guide** catalogues the failure modes of judge-based evaluation and the mitigation for each bias ([LLM-as-a-judge guide](https://www.evidentlyai.com/llm-guide/llm-as-a-judge)). Both converge on one point: the judge is an instrument, and an instrument needs calibration evidence.
 
 ---
 
 ## Recommendations
 
-### Short-Term (This Week)
+### Short term (this week)
 
-1. **Read 100 traces.** Before building any infrastructure, read actual system outputs. Annotate failures with open-ended observations. Group into themes. This single activity will produce more insight than any framework.
-2. **Build 5 code-based assertions.** Check structured output compliance, length constraints, PII leakage, and any deterministic quality requirements. Run them on every commit.
-3. **Create a 50-example golden dataset.** Focus on hard cases -- inputs where the system is most likely to fail. Label with binary PASS/FAIL. Store in version control.
+1. **Read 100 traces.** No framework: write observations, group them, count them (Principle 1).
+2. **Build five code-based assertions** for structured output, length, and mechanically detectable leakage, and run them on every commit (Principle 3).
+3. **Create a 50-example golden dataset** of hard cases, labelled PASS/FAIL, in version control.
+4. **Record the baseline:** what the system does today and the set you measured it on. Without one, no improvement claim is checkable.
 
-### Medium-Term (This Month)
+### Medium term (this month)
 
-4. **Build per-dimension LLM-as-judge evaluators** for the top 3 failure modes identified in your error analysis. Validate each against domain expert labels. Target Cohen's Kappa 0.4+.
-5. **Expand the golden dataset to 200+ examples** with a 75/25 dev/held-out split. Include stratification by difficulty and input category.
-6. **Add confidence intervals to all reported metrics.** Use Wilson score intervals for binary outcomes. Require paired significance tests before declaring one system version better than another.
-7. **Integrate evals into CI/CD.** Use DeepEval or equivalent to block merges when eval pass rates drop below thresholds.
+5. **Build per-dimension judges** for the top three failure modes from your error analysis, and validate each against expert labels (Cohen's Kappa 0.4 or above, Principle 4).
+6. **Expand the golden set to 200+ examples** with a 75/25 split stratified by difficulty and category (Principle 2).
+7. **Add intervals and sample size to every reported number**, and use the paired comparison for any A/B decision (Principle 5).
+8. **Write down the tier of every check** and the address the deployed checks read (Principle 8).
+9. **Move the suite into CI as a gate.** Block the merge when the pass rate falls below a threshold taken from the interval, not a round number.
 
-### Long-Term (This Quarter)
+### Long term (this quarter)
 
-8. **Deploy production monitoring** with 10% sampling, per-dimension judges, and per-slice aggregation. Set drift detection alerts.
-9. **Validate the eval-to-business-metric bridge.** Correlate eval pass rates with user satisfaction, task completion, and support ticket volume. Iterate until <5% alignment error.
-10. **Establish an eval refresh cadence.** Quarterly review of the golden dataset. Add production failure cases to the dataset. Retire examples that no longer represent current traffic patterns.
+10. **Deploy production monitoring** with 10% sampling, per-dimension judges, per-slice aggregation, and drift alerts (Principle 7).
+11. **Validate the eval-to-business-metric bridge:** correlate pass rates with user satisfaction, task completion, and support volume until the alignment error is under 5%.
+12. **Compute the capability claims:** for each property you assert, attach a check that recomputes it and fails on a mismatch with the written claim (Failure Mode 8).
+13. **Establish a refresh cadence.** Review the golden set quarterly, add production failure cases, retire examples that no longer represent traffic.
 
 ---
 
 ## The Hard Truth
 
-Most teams that claim to practice evaluation-driven development are actually practicing **evaluation-adjacent development**: they have evals, but the evals do not drive decisions. The prompt gets changed, someone checks whether the eval scores went up, and if they are roughly in the same range, the change ships. The evals exist as documentation of effort, not as gatekeepers of quality.
+Most teams that claim to practice evaluation-driven development practise **evaluation-adjacent development**: they have evals, but the evals do not drive decisions. The prompt changes, somebody checks whether the scores moved, and if they are roughly in the same range, the change ships. The evals document effort rather than gate quality.
 
-The uncomfortable reality is that building good evals is harder than building the system being evaluated. Defining "correct" for a subjective task requires more domain expertise than writing the prompt that produces the output. Constructing a golden dataset that represents production traffic requires more understanding of your users than building the feature they use. Validating that an automated judge agrees with human judgment requires more statistical rigor than most ML teams practice.
+Building good evals is harder than building the system they measure. Defining "correct" for a subjective task takes more domain expertise than writing the prompt; constructing a dataset that represents production traffic takes more understanding of your users than building the feature they use; validating that a judge agrees with human judgement takes more statistical care than most teams practise.
 
-This is why [Hamel Husain recommends](https://hamel.dev/blog/posts/evals/) spending 60-80% of development time on error analysis and evaluation. Not because evals are overhead, but because evals *are* the product development process for LLM systems. The system is only as good as your ability to measure it. If you cannot measure it, you are guessing. And in production, guessing is not engineering.
+The one thing to remember: **an eval you have not run is an opinion.** A number with an interval, a sample size, and a recorded set is a measurement, and only measurements survive contact with users.
 
 ---
 
 ## Summary Checklist
 
-| Question | Good Answer | Bad Answer |
-|----------|------------|------------|
-| How do you validate a prompt change? | Run against 200+ example golden dataset with CI gate | Test a few inputs, eyeball the output |
-| What type of eval do you use for structured output? | Code-based assertions (schema validation, regex) | LLM-as-judge for everything |
-| How many dimensions does your LLM judge evaluate? | One per judge, binary PASS/FAIL each | One judge, 8 dimensions, 1-5 scale each |
-| What model judges your outputs? | Different family from generator | Same model that generated them |
-| How do you report eval improvements? | Mean + confidence interval + sample size | "Accuracy went from 87% to 91%" |
-| How many examples in your held-out test set? | 50+ (25% of golden dataset), never optimized against | Same set used for development and testing |
-| How do you monitor production quality? | 10% sampling, per-dimension judges, drift alerts | Check dashboards when users complain |
-| How do you connect evals to business outcomes? | Validated correlation between eval pass rates and user satisfaction | "Our scores are high so users must be happy" |
-| What was the first thing you built? | Error analysis of 100+ traces | Evaluation framework integration |
-| When did you last refresh your golden dataset? | This quarter | When we first built it |
+| Question | Good answer | Bad answer |
+|---|---|---|
+| How do you monitor production quality? | Sampled judges per dimension, drift alerts, business-metric correlation | Check dashboards when users complain |
+| Does your eval read the deployed service? | Yes, with the tier named and the address recorded | The suite boots the service from source and calls itself end to end |
+| Is any capability claim of yours computed? | Yes, a check recomputes it and fails on a mismatch | It is written in a document and nothing recomputes it |
+| What did you build first? | Error analysis of 100+ traces | Framework integration |
+
+---
+
+## Field Notes from an Operating Estate
+
+*Three observations from running an estate of roughly a dozen agent harnesses, published as abstract patterns.*
+
+**July 2026 — a green suite and a broken service are compatible.** Two source-level test suites were green for two days while the deployed service returned errors on every request. The suites were not wrong: they answered "is the code correct?", and the code was correct. Nobody had written a check that read the deployed service. The repair was not a better suite. It was a rule that every end-to-end request names four fields a brief usually drops: the address a person uses, the live pieces it must touch, what it must not write, and the check that reads the deployed service and reports its own evidence. A report that calls a source-level suite end-to-end is now the defect the rule exists to prevent.
+
+**July 2026 — capability claims had no checkable form.** An assertion of the form "this system is self-improving" could be written down and could not be computed. The estate built a small layer that derives such claims from a recorded structure — components, typed edges, and attached checks — and recomputes them, failing the build when a declared verdict no longer matches the recomputed one. The finding that generalises is narrower than the implementation: a claim with no check behind it is stale from the moment it is written, and a written claim kept beside a check that recomputes it is a cache, not a fact.
+
+**August 2026 — the useful measurement is the one that changes a decision.** The estate's most valuable evaluation work was not a benchmark. It was a per-step record of which checks fired, which were skipped, and which could not be measured at all. Classifying every step as expected, skipped, wrong-version, or gap made a distinction visible that no aggregate pass rate can express: the difference between "the check passed" and "the check never ran".
 
 ---
 
 ## References
 
-### Research Papers
+### Research papers
 
-- [Who Validates the Validators? (Shankar et al., UIST 2024)](https://arxiv.org/abs/2404.12272) -- Proved that evaluation criteria drift as evaluators observe more outputs; introduced the EvalGen mixed-initiative system for iterative criteria development.
-- [EDDOps: A Reference Architecture for Evaluation-Driven Development of LLM Agents (2024)](https://arxiv.org/html/2411.13768v3) -- Formal process model and three-layer reference architecture for EDD, synthesized from multivocal literature review; introduced per-slice reporting and shadow/canary deployment patterns.
-- [CLT-Based Confidence Intervals Fail for LLM Evals (ICML 2025 Spotlight)](https://arxiv.org/abs/2503.01747) -- Demonstrated that standard confidence intervals produce overly narrow error bars below ~100 datapoints; recommended Bayesian alternatives.
+- [Panickssery et al., "LLM Evaluators Recognize and Favor Their Own Generations," NeurIPS 2024](https://arxiv.org/abs/2404.13076) — Self-preference quantified at 87.8% for GPT-4; the bias tracks self-recognition ability.
+- [Lu et al., "When Does Verification Pay Off? A Closer Look at LLMs as Solution Verifiers," 2026](https://arxiv.org/abs/2512.02304) — 37 models, 7 families, 9 benchmarks: cross-family verification beats self- and same-family verification, and the benefit shrinks as solver and verifier converge.
+- [AutoResearchEval, "How Do Agents Fail on AutoResearch," 2026](https://arxiv.org/abs/2608.14905) — 45 failure patterns across 800 analyses; uncorrected self-awareness in 82.5% of analyses.
+- [Vasudev et al., "Accurate Failure Prediction in Agents Does Not Imply Effective Failure Prevention," 2026](https://arxiv.org/abs/2602.03338) — A critic at AUROC 0.94 caused a 26-point collapse; the disruption-recovery tradeoff; a 50-task pilot forecasts the direction.
+- [Huang et al., "Large Language Models Cannot Self-Correct Reasoning Yet," ICLR 2024](https://arxiv.org/abs/2310.01798) — Intrinsic self-correction without external feedback degrades reasoning performance.
+- [Stechly et al., "On the Self-Verification Limitations of Large Language Models on Reasoning and Planning Tasks," ICLR 2025](https://arxiv.org/abs/2402.08115) — Self-critique reduced measured performance versus single-shot prompting.
+- [Kocmi & Federmann, "Navigating the Grading Scale," 2026](https://arxiv.org/abs/2601.03444) — Scale choice changes human-judge agreement: 0-5 strongest (ICC 0.853), 0-10 weakest (ICC 0.805).
+- [Miller, "Adding Error Bars to Evals," 2024](https://arxiv.org/abs/2411.00640) — The standard treatment of variance and intervals in LLM evaluation.
+- [Wang et al., "Measuring all the noises of LLM Evals," 2025](https://arxiv.org/abs/2512.21326) — Model-sampling variance can exceed example-sampling variance.
+- [Wu et al., "Efficient Evaluation of LLM Performance with Statistical Guarantees," 2026](https://arxiv.org/abs/2601.20251) — Statistically guaranteed intervals at a fraction of the cost of naive evaluation.
+- [CLT-Based Confidence Intervals Fail for LLM Evals, ICML 2025 spotlight](https://arxiv.org/abs/2503.01747) — Standard intervals are too narrow below roughly 100 data points.
+- [Shankar et al., "Who Validates the Validators?", UIST 2024](https://arxiv.org/abs/2404.12272) — Evaluation criteria drift as evaluators observe more outputs.
+- [EDDOps: A Reference Architecture for Evaluation-Driven Development of LLM Agents](https://arxiv.org/html/2411.13768v3) — Per-slice reporting and shadow and canary deployment patterns.
+- ["A survey on LLM-as-a-judge," *The Innovation*, 7(6), June 2026](https://www.sciencedirect.com/science/article/pii/S2666675825004564) — Consolidates reliability strategies: consistency, bias mitigation, and a judge-reliability benchmark.
+- [Kim & Khashabi, "Challenging the Evaluator: LLM Sycophancy Under User Rebuttal," EMNLP 2025 Findings](https://arxiv.org/abs/2509.16533) — An evaluator endorses a user's counterargument when it arrives as a later turn.
+- [Bavaresco et al., "Judging the Judges," ACL 2025](https://arxiv.org/abs/2406.07791) — 15 judges, 22 tasks, about 150,000 instances; position bias varies by judge, task, and the quality gap between candidates.
+- [Dubois et al., "Length-Controlled AlpacaEval," 2024](https://arxiv.org/abs/2404.04475) — Length debiasing raised Spearman correlation with human preference from 0.94 to 0.98.
 
-### Practitioner Articles
+### Practitioner articles
 
-- [Hamel Husain: Your AI Product Needs Evals](https://hamel.dev/blog/posts/evals/) -- Three-level evaluation architecture (unit tests, human+model evaluation, A/B testing) with budget allocation guidance.
-- [Hamel Husain: Using LLM-as-a-Judge -- A Complete Guide](https://hamel.dev/blog/posts/llm-judge/) -- Seven-step critique shadowing method for building domain-aligned LLM judges with >90% expert agreement.
-- [Hamel Husain: Evals FAQ](https://hamel.dev/blog/posts/evals-faq/) -- Sample size guidance, common mistakes, and budget allocation for evaluation work.
-- [Hamel Husain: A Field Guide for Rapidly Improving AI Products](https://hamel.dev/blog/posts/field-guide/) -- Six-practice guide centered on error analysis; NurtureBoss case study (33% to 95% success rate).
-- [Eugene Yan: Task-Specific LLM Evals that Do and Don't Work](https://eugeneyan.com/writing/evals/) -- Concrete guidance on which metrics work per task type; demonstrated ROUGE/BERTScore unreliability for summarization.
-- [Eugene Yan: An LLM-as-Judge Won't Save The Product](https://eugeneyan.com/writing/eval-process/) -- Central thesis that process discipline (scientific method) beats tool sophistication.
-- [Eugene Yan: Product Evals in Three Simple Steps](https://eugeneyan.com/writing/product-evals/) -- Dataset construction (200+ examples, 50-100 failures), Cohen's Kappa targets, confidence interval guidance.
-- [The Pragmatic Engineer: A Pragmatic Guide to LLM Evals](https://newsletter.pragmaticengineer.com/p/evals) -- Three Gulfs framework; open coding and axial coding method for failure classification.
-- [Martin Fowler: Generative AI Patterns](https://martinfowler.com/articles/gen-ai-patterns/) -- Eval-driven development pattern; self-evaluation bias as anti-pattern; fine-tuning decision framework.
-- [Cameron Wolfe: Statistics for LLM Evals](https://cameronrwolfe.substack.com/p/stats-llm-evals) -- Variance decomposition, paired comparisons, power analysis formulas, minimum reporting standards.
-- [Desi Ivanova: Statistical Methods for LLM Evals](https://desirivanova.com/post/llm-stats-evals/) -- Wilson score intervals, Fisher exact tests, logistic regression for confound isolation.
+- [Hamel Husain, "Your AI Product Needs Evals"](https://hamel.dev/blog/posts/evals/) — Three-level evaluation architecture with budget allocation guidance.
+- [Hamel Husain, "Using LLM-as-a-Judge: A Complete Guide"](https://hamel.dev/blog/posts/llm-judge/) — The critique shadowing method behind the above 90% expert-agreement figure.
+- [Hamel Husain, "Evals FAQ"](https://hamel.dev/blog/posts/evals-faq/) — Sample-size guidance, common mistakes, and budget allocation.
+- [Hamel Husain, "A Field Guide for Rapidly Improving AI Products"](https://hamel.dev/blog/posts/field-guide/) — The 33% to 95% case study behind the eval flywheel.
+- [Eugene Yan, "Task-Specific LLM Evals That Do and Don't Work"](https://eugeneyan.com/writing/evals/) — Which metrics work per task type; ROUGE and BERTScore unreliability for summarisation.
+- [Eugene Yan, "An LLM-as-Judge Won't Save The Product"](https://eugeneyan.com/writing/eval-process/) — Process discipline beats tool sophistication.
+- [Eugene Yan, "Product Evals in Three Simple Steps"](https://eugeneyan.com/writing/product-evals/) — Dataset construction, Cohen's Kappa targets, and the defect-rate interval arithmetic.
+- [The Pragmatic Engineer, "A Pragmatic Guide to LLM Evals"](https://newsletter.pragmaticengineer.com/p/evals) — The three-gulfs framing and the open-coding method.
+- [Martin Fowler, "Generative AI Patterns"](https://martinfowler.com/articles/gen-ai-patterns/) — Eval-driven development as a named pattern; self-evaluation bias as an anti-pattern.
+- [Cameron Wolfe, "Statistics for LLM Evals"](https://cameronrwolfe.substack.com/p/stats-llm-evals) — Variance decomposition, paired comparisons, power analysis, minimum reporting standards.
+- [Indeed Engineering, "Bootstrap Confidence Intervals for LLM Evaluation," July 2026](https://engineering.indeedblog.com/blog/2026/07/bootstrap-confidence-intervals-for-llm-evaluation) — Cluster bootstrap for repeated runs over the same examples.
+- [Anthropic, "Demystifying Evals for AI Agents"](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents) — One isolated judge per dimension.
+- [Evidently AI, "LLM-as-a-judge: A Complete Guide"](https://www.evidentlyai.com/llm-guide/llm-as-a-judge) — Judge types, position-bias mitigation, and production monitoring architecture.
+- [Confident AI, "The Ultimate LLM Evaluation Playbook"](https://www.confident-ai.com/blog/the-ultimate-llm-evaluation-playbook) — Metric-outcome fit and the eval-to-business-metric bridge.
+- [Datadog, "LLM Evaluation Framework Best Practices"](https://www.datadoghq.com/blog/llm-evaluation-framework-best-practices/) — Production monitoring pipeline architecture.
 
-### Framework Documentation and Comparisons
+### Official documentation and guidance
 
-- [Evidently AI: LLM-as-a-Judge Complete Guide](https://www.evidentlyai.com/llm-guide/llm-as-a-judge) -- Judge types (pairwise, reference-free, reference-based), position bias mitigation, production monitoring architecture.
-- [Microsoft PromptFlow: Golden Dataset Creation Guidance](https://github.com/microsoft/promptflow-resource-hub/blob/main/sample_gallery/golden_dataset/copilot-golden-dataset-creation-guidance.md) -- 100-150 example minimum; four-step construction process with domain expert validation.
-- [Confident AI: The Ultimate LLM Evaluation Playbook](https://www.confident-ai.com/blog/the-ultimate-llm-evaluation-playbook) -- Metric-Outcome Fit (MOF) framework; <5% alignment error target between eval metrics and business outcomes.
-- [Datadog: LLM Evaluation Framework Best Practices](https://www.datadoghq.com/blog/llm-evaluation-framework-best-practices/) -- Production monitoring pipeline architecture; trace-level eval integration.
-- [DEV Community: RAGAS vs DeepEval vs Braintrust vs LangSmith vs Arize Phoenix](https://dev.to/ultraduneai/eval-006-llm-evaluation-tools-ragas-vs-deepeval-vs-braintrust-vs-langsmith-vs-arize-phoenix-3p11) -- Side-by-side framework comparison with pricing and metric coverage.
-- [Braintrust: DeepEval Alternatives 2026](https://www.braintrust.dev/articles/deepeval-alternatives-2026) -- Detailed feature matrix across 7 frameworks with deployment models.
+- [NIST, "Towards Best Practices for Automated Benchmark Evaluations," January 2026](https://www.nist.gov/news-events/news/2026/01/towards-best-practices-automated-benchmark-evaluations) — Report uncertainty, not a bare score.
+- [DeepEval 2026 changelog](https://deepeval.com/changelog/changelog-2026) — The 4.0 line: local trace inspector, agent loop-detection and tool-permission metrics.
+- [DeepEval releases](https://github.com/confident-ai/deepeval/releases) — Version history for pinning.
+- [RAGAS documentation](https://docs.ragas.io/en/stable/) — Retrieval metrics and custom judge models.
+- [Promptfoo red-teaming documentation](https://www.promptfoo.dev/docs/red-team/) — OWASP and NIST presets.
+- [Promptfoo, "Promptfoo is joining OpenAI," March 2026](https://www.promptfoo.dev/blog/promptfoo-joining-openai) — The acquisition announcement and the open-source commitment.
+- [Microsoft PromptFlow: golden dataset creation guidance](https://github.com/microsoft/promptflow-resource-hub/blob/main/sample_gallery/golden_dataset/copilot-golden-dataset-creation-guidance.md) — The 100-150 example minimum and the construction process.
+- [Langfuse: model-based evaluations](https://langfuse.com/docs/scores/model-based-evals) — Self-hosted scoring.
+- [Arize Phoenix documentation](https://arize.com/docs/phoenix) — OpenTelemetry-native tracing and evaluation.
+- [Braintrust autoevals reference](https://www.braintrust.dev/docs/reference/autoevals) — Scorer configuration.
 
-### Related Documents in This Suite
+### Related documents in this suite
 
-- [AI-Native Solution Patterns](docs/ai-native-solution-patterns.md) -- Build stages with evaluation criteria for each architectural pattern; Pattern 5 (Evaluator-Optimizer) references this document's principles.
-- [Prompt Engineering](docs/prompt-engineering.md) -- Establishes that evaluation infrastructure is required before prompt optimization can be systematic.
-- [RAG: From Concept to Production](docs/rag-from-concept-to-production.md) -- RAG-specific evaluation metrics and thresholds (context precision, faithfulness, answer relevance).
-- [LLM Role Separation: Executor vs Evaluator](docs/llm-role-separation-executor-evaluator.md) -- Full isolation architecture for why evaluators must be structurally separated from generators.
+- [LLM Role Separation: Executor vs Evaluator](llm-role-separation-executor-evaluator.md) — Why the judge must be structurally independent, at seven levels of isolation.
+- [Quality Gates in Agentic Systems](quality-gates-in-agentic-systems.md) — The enforcement layer that turns an eval into a gate.
+- [Observability and Monitoring](observability-and-monitoring.md) — Traces, sampling, and drift detection in production.
+- [AI-Native Solution Patterns](ai-native-solution-patterns.md) — Build stages with evaluation criteria per architectural pattern.
+- [RAG: From Concept to Production](rag-from-concept-to-production.md) — Retrieval-specific metrics and thresholds.
+
+---
+
+*Last reviewed: September 2026. Changed in this revision: added the failure mode for unmeasured capability claims, added the Wilson-interval precision table and cluster-bootstrap guidance, added a principle on naming the check's tier, corrected the framework list (DeepEval 4.x, RAGAS 0.4.x, Promptfoo's March 2026 acquisition, TruLens and Langfuse added), corrected two in-document links, and added field notes.*
