@@ -98,7 +98,7 @@ Indirect injection is the more dangerous class: the attacker needs no access to 
 
 **What it looks like:** Vulnerabilities in pre-trained models, fine-tuning datasets, LoRA adapters or framework dependencies introduce backdoors, biased behavior or arbitrary code execution before the developer writes any code.
 
-**Why it happens:** LLM supply chains are opaque: models are binary black boxes resistant to static inspection. [OWASP LLM03 (Supply Chain)](https://genai.owasp.org/llmrisk/llm032025-supply-chain/) documents 10 attack vectors, including:
+**Why it happens:** LLM supply chains are opaque: models are binary black boxes resistant to static inspection. [OWASP LLM03 (Supply Chain)](https://genai.owasp.org/llmrisk/llm032025-supply-chain/) documents nine common examples of risk and thirteen sample attack scenarios, including:
 
 - **PoisonGPT:** The ROME technique modified GPT-J parameters to create a model that spread targeted misinformation while looking normal on standard benchmarks -- it [bypassed Hugging Face safety features entirely](https://www.confident-ai.com/blog/owasp-top-10-2025-for-llm-applications-risks-and-mitigation-techniques)
 - **Shadow Ray:** Five vulnerabilities in the Ray AI framework affected organizations running distributed LLM workloads
@@ -166,7 +166,7 @@ Screen the model's output before it reaches the user or downstream systems: catc
 
 A Haiku-class classifier scores the output, names any violated category (PII leak, harmful content, injection propagation, unauthorized action, system-prompt leak, data exfiltration) and returns a risk level the caller enforces.
 
-**The moderation API pattern:** [Anthropic's content moderation guide](https://platform.claude.com/docs/en/about-claude/use-case-guides/content-moderation) documents three patterns: binary classification, risk-level classification (high/medium/low), and batch processing for cost. At scale, Haiku-class models moderate at roughly $2,600/month per billion messages versus $52,000/month for Opus-class models.
+**The moderation API pattern:** [Anthropic's content moderation guide](https://platform.claude.com/docs/en/about-claude/use-case-guides/content-moderation) documents three patterns: binary classification, risk-level classification (high/medium/low), and batch processing for cost. Its own operating estimate for one billion posts per month is **$36,100/month** on Haiku 4.5 against **$180,500/month** on Opus 5 -- a 5x gap, because the two models differ by that same factor on both input ($1.00 against $5.00 per MTok) and output ($5.00 against $25.00 per MTok). The estimate rests on stated assumptions: 100 characters per post (28.6B input tokens at one token per 3.5 characters), 3% of posts flagged, and 50 output tokens for each flagged post (1.5B output tokens).
 
 ### Level 4: Structural Separation (Dual LLM Architecture)
 
@@ -511,7 +511,7 @@ Three patterns are visible. Sandboxing shipped off by default in three of five p
 
 - [OWASP LLM01:2025 -- Prompt Injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/) -- Nine attack scenarios, seven mitigation strategies.
 
-- [OWASP LLM03:2025 -- Supply Chain](https://genai.owasp.org/llmrisk/llm032025-supply-chain/) -- Ten attack vectors with nine real incident examples.
+- [OWASP LLM03:2025 -- Supply Chain](https://genai.owasp.org/llmrisk/llm032025-supply-chain/) -- Nine common examples of risk and thirteen sample attack scenarios.
 
 - [OWASP Top 10 for LLM Applications 2025 (Confident AI summary)](https://www.confident-ai.com/blog/owasp-top-10-2025-for-llm-applications-risks-and-mitigation-techniques) -- All ten LLM risks with mitigations.
 
@@ -563,4 +563,4 @@ Three patterns are visible. Sandboxing shipped off by default in three of five p
 
 ---
 
-*Last reviewed: September 2026. Changed in this revision: added the trust-boundary principle (security at the edge, autonomy inside), Failure Mode 7 on poisoning the instruction channels an agent trusts, 2026 measurement data for indirect injection, a real-world agent comparison table, field notes, and an 2026 research and reporting block; corrected the Unit 42 report date and replaced two dead reference links.*
+*Last reviewed: September 2026. Changed in this revision: added the trust-boundary principle (security at the edge, autonomy inside), Failure Mode 7 on poisoning the instruction channels an agent trusts, 2026 measurement data for indirect injection, a real-world agent comparison table, field notes, and an 2026 research and reporting block; corrected the Unit 42 report date, the OWASP LLM03 risk and scenario counts, and the content-moderation cost estimate, and replaced two dead reference links.*
